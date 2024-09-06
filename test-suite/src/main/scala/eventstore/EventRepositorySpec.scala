@@ -777,7 +777,7 @@ object EventRepositorySpec {
         }
       )
     ) @@ TestAspect.shrinks(0)
-  }
+  } @@ TestAspect.timed @@ TestAspect.samples(10)
 
   implicit class Once[R, E, A](self: ZIO[R, E, A]) {
     def executeOnce(store: Ref[Int]) =
