@@ -36,7 +36,7 @@ object Libraries {
 
   val `play-json-libs` = Seq(
     "com.typesafe.play" %% "play-json" % "2.9.4",
-    "org.julienrf" %% "play-json-derived-codecs" % "7.0.0"
+    "org.julienrf" %% "play-json-derived-codecs" % "11.0.0"
   )
 
   val `postgres-test-container` = Seq(
