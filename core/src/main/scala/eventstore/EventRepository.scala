@@ -50,20 +50,22 @@ object EventRepository {
 
   implicit class EventsOps[E, DoneBy](self: Seq[RepositoryWriteEvent[E, DoneBy]]) {
 
-    def checkVersionsAreContiguousIncrements: IO[Unexpected, Unit] = self match {
+    def checkVersionsAreContiguousIncrements: Either[Unexpected, Unit] = self match {
       case _ :: tail =>
-        ZIO.foreachDiscard(self.zip(tail)) { case (current, next) =>
-          ZIO
-            .fail(
-              Unexpected(
-                new IllegalArgumentException(
-                  s"Invalid version sequence current: ${current.aggregateVersion}, next: ${next.aggregateVersion}"
+        self.zip(tail).foldLeft[Either[Unexpected, Unit]](Right[Unexpected, Unit](())) {
+          case (invalid @ Left(_), _) => invalid
+          case (valid, (current, next)) =>
+            if (current.aggregateVersion.next == next.aggregateVersion) valid
+            else
+              Left(
+                Unexpected(
+                  new IllegalArgumentException(
+                    s"Invalid version sequence current: ${current.aggregateVersion}, next: ${next.aggregateVersion}"
+                  )
                 )
               )
-            )
-            .unless(current.aggregateVersion.next == next.aggregateVersion)
         }
-      case _ => ZIO.unit
+      case _ => Right(())
     }
   }
 }

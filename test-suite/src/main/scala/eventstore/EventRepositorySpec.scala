@@ -2,7 +2,7 @@ package eventstore
 
 import types.{AggregateId, AggregateName, AggregateVersion, EventStoreVersion, EventStreamId, ProcessId}
 import EventRepository.Error.{Unexpected, VersionConflict}
-import EventRepository.Subscription
+import EventRepository.{SaveEventError, Subscription}
 import zio.stream.{UStream, ZStream}
 import zio.{Chunk, Random, Ref, Tag, TagK, URLayer, ZIO, durationInt}
 import zio.test.*
@@ -520,6 +520,30 @@ object EventRepositorySpec {
                   .runCollect
               } yield assert(actual)(hasSameElements(Seq(stream1, stream2))))
                 .provideSome[R](repository)
+          }
+        },
+        test("save should not write events with conflicting versions") {
+          check(eventsGen(eventGen)) {
+            case (streamId, events1, events2) =>
+              ZIO.scoped {
+                val save = ZIO.serviceWithZIO[EventRepository[Decoder, Encoder]](_.saveEvents(streamId, events2).either)
+                for {
+                  _ <- ZIO.serviceWithZIO[EventRepository[Decoder, Encoder]](_.saveEvents(streamId, events1))
+                  result <- ZIO.collectAllPar(ZIO.replicate(10)(save))
+                  (success, failures) = result.partition(_.isRight)
+                } yield {
+                  assert(success)(hasSize(equalTo(1))) &&
+                    assert(failures)(
+                      forall(isLeft[SaveEventError](equalTo(
+                        VersionConflict(
+                          provided = AggregateVersion(events1.length),
+                          required = AggregateVersion(events1.length + events2.length)
+                        )
+                      ))) &&
+                        hasSize(equalTo(9))
+                    )
+                }
+              }.provideSome[R](repository)
           }
         }
       ),

@@ -1,8 +1,11 @@
 package eventstore.pg
 
+import cats.data.EitherT
+import cats.implicits.catsSyntaxApplicativeId
 import doobie.Fragment
 import doobie.Get
 import doobie._
+import doobie.enumerated.TransactionIsolation
 import doobie.implicits._
 import doobie.postgres.implicits._
 import doobie.util.update.Update
@@ -30,6 +33,7 @@ import zio.stream.Stream
 import zio.stream.ZStream
 import zio.stream.interop.fs2z._
 
+import java.sql.Savepoint
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.util.UUID
@@ -58,47 +62,12 @@ class PostgresEventRepositoryLive(
       writeEvents: Seq[RepositoryWriteEvent[E, DoneBy]]
   ): IO[SaveEventError, Seq[RepositoryEvent[E, DoneBy]]] = {
     for {
-      _ <- writeEvents.checkVersionsAreContiguousIncrements
+      _ <- ZIO.fromEither(writeEvents.checkVersionsAreContiguousIncrements)
 
-      expectedVersion <- queryMaxVersionForAggregate(eventStreamId)
-
-      _ <- checkExpectedVersion(expectedVersion, writeEvents)
-
-      events <- insertEvents(writeEvents)
+      events <- transactionalSave(eventStreamId, writeEvents)
 
       _ <- hub.publishAll(events)
     } yield events
-  }
-
-  private def queryMaxVersionForAggregate(eventStreamId: EventStreamId) =
-    Req
-      .selectMaxVersion(eventStreamId)
-      .query[AggregateVersion]
-      .unique
-      .transact(transactor)
-      .tapErrorCause(ZIO.logErrorCause("saveEvents", _))
-      .mapError(Unexpected.apply)
-
-  private def insertEvents[DoneBy: Get: Put: Tag, E: Get: Put: Tag](
-      writeEvents: Seq[RepositoryWriteEvent[E, DoneBy]]
-  ) = {
-    Req
-      .insert[E, DoneBy]
-      .updateManyWithGeneratedKeys[RepositoryEvent[E, DoneBy]](
-        "processid",
-        "aggregateid",
-        "aggregatename",
-        "sentdate",
-        "payload",
-        "doneBy",
-        "aggregateVersion",
-        "eventStoreVersion"
-      )(writeEvents)
-      .transact(transactor)
-      .compile
-      .toList
-      .tapErrorCause(ZIO.logErrorCause("saveEvents", _))
-      .mapError(Unexpected.apply)
   }
 
   override def listen[EventType: Get: Tag, DoneBy: Get: Tag]
@@ -139,19 +108,102 @@ class PostgresEventRepositoryLive(
       .tapErrorCause(ZIO.logErrorCause("listEventStreamWithName", _))
       .mapError(Unexpected.apply)
 
+  private def transactionalSave[E: Get: Put: Tag, DoneBy: Get: Put: Tag](
+      eventStreamId: EventStreamId,
+      writeEvents: Seq[RepositoryWriteEvent[E, DoneBy]]
+  ): IO[SaveEventError, List[RepositoryEvent[E, DoneBy]]] =
+    (for {
+      _ <- setTransactionIsolation
+      expectedVersion <- queryMaxVersionForAggregate(eventStreamId)
+      _ <- checkExpectedVersion(expectedVersion, writeEvents)
+      events <- insertEvents(eventStreamId, writeEvents)
+    } yield events).value
+      .transact(transactor)
+      .orDie
+      .absolve
+
+  private def setTransactionIsolation: EitherT[ConnectionIO, SaveEventError, Unit] =
+    EitherT.right {
+      for {
+        _ <- FC.setAutoCommit(false)
+        _ <- FC.setTransactionIsolation(TransactionIsolation.TransactionReadCommitted.toInt)
+      } yield ()
+    }
+
+  private def queryMaxVersionForAggregate(eventStreamId: EventStreamId) =
+    EitherT {
+      Req
+        .selectMaxVersion(eventStreamId)
+        .query[AggregateVersion]
+        .unique
+        .attemptSql
+    }
+      .leftMap[SaveEventError](Unexpected.apply)
+
+  private def insertEvents[DoneBy: Get: Put: Tag, E: Get: Put: Tag](
+      eventStreamId: EventStreamId,
+      writeEvents: Seq[RepositoryWriteEvent[E, DoneBy]]
+  ): EitherT[ConnectionIO, SaveEventError, List[RepositoryEvent[E, DoneBy]]] = for {
+    savepoint <- EitherT.right { FC.setSavepoint }
+
+    result <- EitherT {
+      Req
+        .insert[E, DoneBy]
+        .updateManyWithGeneratedKeys[RepositoryEvent[E, DoneBy]](
+          "processid",
+          "aggregateid",
+          "aggregatename",
+          "sentdate",
+          "payload",
+          "doneBy",
+          "aggregateVersion",
+          "eventStoreVersion"
+        )(writeEvents)
+        .compile
+        .toList
+        .map[Either[SaveEventError, List[RepositoryEvent[E, DoneBy]]]](Right.apply)
+        .onUniqueViolation {
+          generateVersionConflictError(
+            eventStreamId = eventStreamId,
+            savepoint = savepoint,
+            providedVersion = writeEvents.head.aggregateVersion
+          ).value
+        }
+        .attemptSql
+    }
+      .leftMap { Unexpected(_) }
+      .flatMap { EitherT.fromEither(_) }
+  } yield result
+
+  private def generateVersionConflictError[A](
+      eventStreamId: EventStreamId,
+      savepoint: Savepoint,
+      providedVersion: AggregateVersion
+  ): EitherT[ConnectionIO, SaveEventError, A] =
+    for {
+      _ <- EitherT.right { FC.rollback(savepoint) }
+      expected <- queryMaxVersionForAggregate(eventStreamId)
+      result <- EitherT.left[A][ConnectionIO, SaveEventError](
+        (VersionConflict(provided = providedVersion, required = expected): SaveEventError).pure[ConnectionIO]
+      )
+    } yield result
+
   private def checkExpectedVersion(
       expectedVersion: AggregateVersion,
       newEvents: Seq[RepositoryWriteEvent[?, ?]]
-  ) = {
-    newEvents.headOption
-      .map(_.aggregateVersion)
-      .map(headVersion =>
-        ZIO
-          .fail[SaveEventError](VersionConflict(headVersion, expectedVersion))
-          .unless(headVersion == expectedVersion)
-      )
-      .getOrElse(ZIO.unit)
-  }
+  ): EitherT[ConnectionIO, SaveEventError, Unit] =
+    EitherT.fromEither {
+      newEvents.headOption
+        .map { headEvent =>
+          val headVersion = headEvent.aggregateVersion
+          if (headVersion == expectedVersion) {
+            Right(())
+          } else {
+            Left(VersionConflict(headVersion, expectedVersion))
+          }
+        }
+        .getOrElse(Right(()))
+    }
 
 }
 
