@@ -70,21 +70,21 @@ object EventRepository {
   }
 }
 
-trait EventRepository[Encoder[_], Decoder[_]] {
+trait EventRepository[Decoder[_], Encoder[_]] {
 
-  def getAllEvents[A: Encoder: Tag, DoneBy: Encoder: Tag]: Stream[Unexpected, RepositoryEvent[A, DoneBy]]
+  def getAllEvents[A: Decoder: Tag, DoneBy: Decoder: Tag]: Stream[Unexpected, RepositoryEvent[A, DoneBy]]
 
   def listEventStreamWithName(aggregateName: AggregateName): Stream[Unexpected, EventStreamId]
 
-  def getEventStream[A: Encoder: Tag, DoneBy: Encoder: Tag](
+  def getEventStream[A: Decoder: Tag, DoneBy: Decoder: Tag](
       eventStreamId: EventStreamId
   ): IO[Unexpected, Seq[RepositoryEvent[A, DoneBy]]]
 
-  def saveEvents[A: Encoder: Decoder: Tag, DoneBy: Encoder: Decoder: Tag](
+  def saveEvents[A: Decoder: Encoder: Tag, DoneBy: Decoder: Encoder: Tag](
       eventStreamId: EventStreamId,
       events: Seq[RepositoryWriteEvent[A, DoneBy]]
   ): IO[SaveEventError, Seq[RepositoryEvent[A, DoneBy]]]
 
-  def listen[EventType: Encoder: Tag, DoneBy: Encoder: Tag]: ZIO[Scope, Unexpected, Subscription[EventType, DoneBy]]
+  def listen[EventType: Decoder: Tag, DoneBy: Decoder: Tag]: ZIO[Scope, Unexpected, Subscription[EventType, DoneBy]]
 
 }
