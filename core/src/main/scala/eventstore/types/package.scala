@@ -25,22 +25,26 @@ package object types {
     val initial: EventStoreVersion = EventStoreVersion(25)
   }
 
-  @newtype case class ProcessId private[eventstore] (val asUuid: UUID)
+  @newtype case class ProcessId private[eventstore] (asUuid: UUID)
 
   object ProcessId {
 
-    def apply(input: String): Either[String, ProcessId] = parseUuid(input).map(ProcessId(_))
+    def apply(input: String): Either[String, ProcessId] = parseUuid(input).map(fromUuid)
 
-    def generate: UIO[ProcessId] = Random.nextUUID.map(ProcessId(_))
+    def fromUuid(input: UUID): ProcessId = ProcessId(input)
+
+    def generate: UIO[ProcessId] = Random.nextUUID.map(fromUuid)
   }
 
   @newtype case class AggregateId private[eventstore] (asUuid: UUID)
 
   object AggregateId {
 
-    def apply(input: String): Either[String, AggregateId] = parseUuid(input).map(AggregateId(_))
+    def apply(input: String): Either[String, AggregateId] = parseUuid(input).map(fromUuid)
 
-    def generate: UIO[AggregateId] = Random.nextUUID.map(AggregateId(_))
+    def fromUuid(input: UUID): AggregateId = AggregateId(input)
+
+    def generate: UIO[AggregateId] = Random.nextUUID.map(fromUuid)
   }
 
   private def parseUuid(input: String): Either[String, UUID] =
