@@ -9,23 +9,23 @@ import scala.util.Try
 
 package object types {
 
-  @newtype case class AggregateVersion private[eventstore] (private[eventstore] val version: Int) {
-    def next: AggregateVersion = AggregateVersion(version + 1)
+  @newtype case class AggregateVersion private[eventstore] (asInt: Int) {
+    def next: AggregateVersion = AggregateVersion(asInt + 1)
   }
 
   object AggregateVersion {
     val initial: AggregateVersion = AggregateVersion(0)
   }
 
-  @newtype case class EventStoreVersion private[eventstore] (private[eventstore] val version: Int) {
-    def next: EventStoreVersion = EventStoreVersion(version + 1)
+  @newtype case class EventStoreVersion private[eventstore] (asInt: Int) {
+    def next: EventStoreVersion = EventStoreVersion(asInt + 1)
   }
 
   object EventStoreVersion {
     val initial: EventStoreVersion = EventStoreVersion(25)
   }
 
-  @newtype case class ProcessId private[eventstore] (private[eventstore] val value: UUID)
+  @newtype case class ProcessId private[eventstore] (val asUuid: UUID)
 
   object ProcessId {
 
@@ -34,7 +34,7 @@ package object types {
     def generate: UIO[ProcessId] = Random.nextUUID.map(ProcessId(_))
   }
 
-  @newtype case class AggregateId private[eventstore] (private[eventstore] val value: UUID)
+  @newtype case class AggregateId private[eventstore] (asUuid: UUID)
 
   object AggregateId {
 
@@ -49,5 +49,5 @@ package object types {
       uuid => Right(uuid)
     )
 
-  @newtype case class AggregateName private[eventstore] (private[eventstore] val value: String)
+  @newtype case class AggregateName private[eventstore] (asString: String)
 }

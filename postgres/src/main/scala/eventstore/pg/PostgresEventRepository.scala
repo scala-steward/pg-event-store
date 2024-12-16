@@ -208,19 +208,19 @@ class PostgresEventRepositoryLive(
 }
 
 object Codecs {
-  implicit val aggregateVersionPut: Put[AggregateVersion] = implicitly[Put[Int]].contramap(_.version)
+  implicit val aggregateVersionPut: Put[AggregateVersion] = implicitly[Put[Int]].contramap(_.asInt)
   implicit val aggregateVersionGet: Get[AggregateVersion] = implicitly[Get[Int]].map(AggregateVersion.apply)
 
-  implicit val eventStoreVersionPut: Put[EventStoreVersion] = implicitly[Put[Int]].contramap(_.version)
+  implicit val eventStoreVersionPut: Put[EventStoreVersion] = implicitly[Put[Int]].contramap(_.asInt)
   implicit val eventStoreVersionGet: Get[EventStoreVersion] = implicitly[Get[Int]].map(EventStoreVersion.apply)
 
-  implicit val processIdPut: Put[ProcessId] = implicitly[Put[UUID]].contramap(_.value)
+  implicit val processIdPut: Put[ProcessId] = implicitly[Put[UUID]].contramap(_.asUuid)
   implicit val processIdGet: Get[ProcessId] = implicitly[Get[UUID]].map(ProcessId.apply)
 
-  implicit val aggregateIdPut: Put[AggregateId] = implicitly[Put[UUID]].contramap(_.value)
+  implicit val aggregateIdPut: Put[AggregateId] = implicitly[Put[UUID]].contramap(_.asUuid)
   implicit val aggregateIdGet: Get[AggregateId] = implicitly[Get[UUID]].map(AggregateId.apply)
 
-  implicit val aggregateNamePut: Put[AggregateName] = implicitly[Put[String]].contramap(_.value)
+  implicit val aggregateNamePut: Put[AggregateName] = implicitly[Put[String]].contramap(_.asString)
   implicit val aggregateNameGet: Get[AggregateName] = implicitly[Get[String]].map(AggregateName.apply)
 
 }
