@@ -29,12 +29,12 @@ object EventRepository {
     ): Subscription[EventType, DoneBy] =
       new Subscription[EventType, DoneBy] {
         override def restartFromFirstEvent(lastEventToHandle: EventStoreVersion): UIO[Unit] =
-          switchableStream.switchToSecondUntil(_.eventStoreVersion == lastEventToHandle)
+          switchableStream.switchToPastEvents(until = _.eventStoreVersion == lastEventToHandle)
 
         override def stream: ZStream[Scope, Unexpected, EventStoreEvent[EventType, DoneBy]] =
           switchableStream.stream.collect {
-            case Message.SwitchedToSecond => Reset[EventType, DoneBy]()
-            case Message.Event(a)         => a
+            case Message.SwitchedToPastEvents => Reset[EventType, DoneBy]()
+            case Message.Event(a)             => a
           }
       }
 
