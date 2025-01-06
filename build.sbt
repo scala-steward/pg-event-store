@@ -3,7 +3,7 @@ import org.typelevel.sbt.tpolecat.DevMode
 import Libraries.*
 import xerial.sbt.Sonatype.sonatypeCentralHost
 
-ThisBuild / scalaVersion := "2.13.15"
+ThisBuild / scalaVersion := "2.13.14"
 ThisBuild / homepage := Some(url("https://github.com/PerformanceIMMO/pg-event-store"))
 ThisBuild / licenses := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0"))
 ThisBuild / organization := "immo.performance"
