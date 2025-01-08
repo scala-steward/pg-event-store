@@ -1,6 +1,5 @@
 package eventstore
 
-import io.estatico.newtype.macros.newtype
 import zio.Random
 import zio.UIO
 
@@ -9,7 +8,7 @@ import scala.util.Try
 
 package object types {
 
-  @newtype case class AggregateVersion private[eventstore] (asInt: Int) {
+  case class AggregateVersion private[eventstore] (asInt: Int) extends AnyVal {
     def next: AggregateVersion = AggregateVersion(asInt + 1)
   }
 
@@ -17,7 +16,7 @@ package object types {
     val initial: AggregateVersion = AggregateVersion(0)
   }
 
-  @newtype case class EventStoreVersion private[eventstore] (asInt: Int) {
+  case class EventStoreVersion private[eventstore] (asInt: Int) extends AnyVal {
     def next: EventStoreVersion = EventStoreVersion(asInt + 1)
   }
 
@@ -25,7 +24,7 @@ package object types {
     val initial: EventStoreVersion = EventStoreVersion(25)
   }
 
-  @newtype case class ProcessId private[eventstore] (asUuid: UUID)
+  case class ProcessId private[eventstore] (asUuid: UUID) extends AnyVal
 
   object ProcessId {
 
@@ -36,7 +35,7 @@ package object types {
     def generate: UIO[ProcessId] = Random.nextUUID.map(fromUuid)
   }
 
-  @newtype case class AggregateId private[eventstore] (asUuid: UUID)
+  case class AggregateId private[eventstore] (asUuid: UUID) extends AnyVal
 
   object AggregateId {
 
@@ -53,5 +52,5 @@ package object types {
       uuid => Right(uuid)
     )
 
-  @newtype case class AggregateName private[eventstore] (asString: String)
+  case class AggregateName private[eventstore] (asString: String) extends AnyVal
 }

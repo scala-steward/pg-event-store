@@ -8,7 +8,7 @@ ThisBuild / homepage := Some(url("https://github.com/PerformanceIMMO/pg-event-st
 ThisBuild / licenses := List("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0"))
 ThisBuild / organization := "immo.performance"
 ThisBuild / organizationName := "Performance IMMO"
-ThisBuild / scalacOptions := Seq("-Xsource:3", "-Ymacro-annotations")
+ThisBuild / scalacOptions := Seq("-Xsource:3", "-Ymacro-annotations", "-Wconf:cat=scala3-migration:info")
 ThisBuild / developers := List(
   Developer(
     id = "mbaechler",
@@ -39,7 +39,7 @@ lazy val core = (project in file("core"))
   .settings(commonSettings)
   .settings(
     name := "pg-event-store-core",
-    libraryDependencies ++= newtypes ++ zio ++ `zio-test`.asTest
+    libraryDependencies ++= zio ++ `zio-test`.asTest
   )
 
 lazy val `test-suite` = (project in file("test-suite"))

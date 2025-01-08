@@ -4,10 +4,6 @@ object Libraries {
   val zio_version = "2.1.11"
   val doobie_version = "1.0.0-RC5"
 
-  val newtypes = Seq(
-    "io.estatico" %% "newtype" % "0.4.4"
-  )
-
   val zio = Seq(
     "dev.zio" %% "zio" % zio_version,
     "dev.zio" %% "zio-streams" % zio_version
