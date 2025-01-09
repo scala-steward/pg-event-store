@@ -31,7 +31,7 @@ private[eventstore] class SwitchableZStream[-R, +E, +A] private (
           for {
             previousState <- stateRef.getAndSet(state)
             _ <- previousState match {
-              case s: StreamState.PastEvents[E, A] => s.pastEventQueue.shutdown
+              case s: StreamState.PastEvents[_, _] => s.pastEventQueue.shutdown
               case StreamState.NotStarted          => ZIO.unit
               case StreamState.Live                => ZIO.unit
             }

@@ -2,8 +2,6 @@ package eventstore.pg
 
 import cats.data.EitherT
 import cats.implicits.catsSyntaxApplicativeId
-import doobie.Fragment
-import doobie.Get
 import doobie._
 import doobie.enumerated.TransactionIsolation
 import doobie.implicits._
@@ -25,8 +23,6 @@ import eventstore.types.AggregateVersion
 import eventstore.types.EventStoreVersion
 import eventstore.types.EventStreamId
 import eventstore.types.ProcessId
-import zio.Tag
-import zio.ZIO
 import zio._
 import zio.interop.catz._
 import zio.stream.Stream
@@ -44,7 +40,6 @@ class PostgresEventRepositoryLive(
 ) extends EventRepository[Get, Put] {
 
   import Codecs.*
-  import Req.*
 
   def getEventStream[A: Get: Tag, DoneBy: Get: Tag](
       eventStreamId: EventStreamId
@@ -223,22 +218,29 @@ object Codecs {
   implicit val aggregateNamePut: Put[AggregateName] = implicitly[Put[String]].contramap(_.asString)
   implicit val aggregateNameGet: Get[AggregateName] = implicitly[Get[String]].map(AggregateName.apply)
 
-}
-
-object PostgresEventRepositoryLive {
-
-  def layer: URLayer[ZTransactor, EventRepository[Get, Put]] = ZLayer.derive[PostgresEventRepositoryLive]
-}
-
-private object Req {
-
-  import Codecs.*
-
   implicit val offsetDateTimeGet: Get[OffsetDateTime] =
     Get[String].map(date => OffsetDateTime.parse(date, DateTimeFormatter.ISO_DATE_TIME))
 
   implicit val offsetDateTimePut: Put[OffsetDateTime] =
     Put[String].contramap(_.format(DateTimeFormatter.ISO_DATE_TIME))
+
+  implicit def repositoryEventRead[E: Get: Tag, DoneBy: Get: Tag]: Read[RepositoryEvent[E, DoneBy]] =
+    Read[(ProcessId, AggregateId, AggregateName, AggregateVersion, OffsetDateTime, EventStoreVersion, DoneBy, E)]
+      .map { x => RepositoryEvent(x._1, x._2, x._3, x._4, x._5, x._6, x._7, x._8) }
+
+  implicit def repositoryWriteEventWrite[E: Put, DoneBy: Put]: Write[RepositoryWriteEvent[E, DoneBy]] =
+    Write[(ProcessId, AggregateId, AggregateName, AggregateVersion, OffsetDateTime, DoneBy, E)]
+      .contramap[RepositoryWriteEvent[E, DoneBy]] { x =>
+        (x.processId, x.aggregateId, x.aggregateName, x.aggregateVersion, x.sentDate, x.doneBy, x.event)
+      }
+}
+
+object PostgresEventRepositoryLive {
+  def layer: URLayer[ZTransactor, EventRepository[Get, Put]] = ZLayer.derive[PostgresEventRepositoryLive]
+}
+
+private object Req {
+  import Codecs.*
 
   def list(eventStreamId: EventStreamId): Fragment = {
     val aggId = eventStreamId.aggregateId

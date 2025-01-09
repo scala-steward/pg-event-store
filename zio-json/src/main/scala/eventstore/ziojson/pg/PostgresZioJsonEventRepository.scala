@@ -8,7 +8,6 @@ import eventstore.RepositoryEvent
 import eventstore.RepositoryWriteEvent
 import eventstore.types.AggregateName
 import eventstore.types.EventStreamId
-import zio.ZIO
 import zio._
 import zio.json._
 import zio.stream.ZStream
