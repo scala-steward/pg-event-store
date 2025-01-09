@@ -52,5 +52,5 @@ package object types {
       uuid => Right(uuid)
     )
 
-  case class AggregateName private[eventstore] (asString: String) extends AnyVal
+  case class AggregateName(asString: String) extends AnyVal
 }
