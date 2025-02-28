@@ -1,7 +1,7 @@
 import sbt.*
 
 object Libraries {
-  val zio_version = "2.1.15"
+  val zio_version = "2.1.16"
   val doobie_version = "1.0.0-RC8"
 
   val zio = Seq(
@@ -16,7 +16,7 @@ object Libraries {
   )
 
   val `zio-json-libs` = Seq(
-    "dev.zio" %% "zio-json" % "0.7.29"
+    "dev.zio" %% "zio-json" % "0.7.36"
   )
 
   val doobie = Seq(
@@ -27,7 +27,7 @@ object Libraries {
   )
 
   val logback = Seq(
-    "ch.qos.logback" % "logback-classic" % "1.5.16"
+    "ch.qos.logback" % "logback-classic" % "1.5.17"
   )
 
   val `play-json-libs` = Seq(
