@@ -523,35 +523,41 @@ object EventRepositorySpec {
           }
         },
         test("listEventStreamWithName should return streams by order of creation") {
-          check(Gen.setOfN(2)(aggregateNameGen)
-            .flatMap(name => Gen.listOfBounded(1, 20)(eventsGen(eventGen, Gen.elements(name.toList*))))) { events =>
-              (for {
-                repository <- ZIO.service[EventRepository[Decoder, Encoder]]
-                firstId = events.head._1
-                ids <- ZIO.foreach(events) {
-                  case (id, firstEvents, _) => repository.saveEvents(id, firstEvents).as(id)
-                }
-                _ <- ZIO.foreachParDiscard(events) {
-                  case (id, _, remainder) => repository.saveEvents(id, remainder)
-                }
-                actual <- repository
-                  .listEventStreamWithName(firstId.aggregateName)
-                  .runCollect
-              } yield assert(actual.toList)(equalTo(ids.filter(_.aggregateName == firstId.aggregateName))))
-                .provideSome[R](repository)
-          }
-        },
-        test("listEventStreamWithName should return streams by reverse order of creation") {
-          check(Gen.setOfN(2)(aggregateNameGen)
-            .flatMap(name => Gen.listOfBounded(1, 20)(eventsGen(eventGen, Gen.elements(name.toList*))))) { events =>
+          check(
+            Gen
+              .setOfN(2)(aggregateNameGen)
+              .flatMap(name => Gen.listOfBounded(1, 20)(eventsGen(eventGen, Gen.elements(name.toList*))))
+          ) { events =>
             (for {
               repository <- ZIO.service[EventRepository[Decoder, Encoder]]
               firstId = events.head._1
-              ids <- ZIO.foreach(events) {
-                case (id, firstEvents, _) => repository.saveEvents(id, firstEvents).as(id)
+              ids <- ZIO.foreach(events) { case (id, firstEvents, _) =>
+                repository.saveEvents(id, firstEvents).as(id)
               }
-              _ <- ZIO.foreachParDiscard(events) {
-                case (id, _, remainder) => repository.saveEvents(id, remainder)
+              _ <- ZIO.foreachParDiscard(events) { case (id, _, remainder) =>
+                repository.saveEvents(id, remainder)
+              }
+              actual <- repository
+                .listEventStreamWithName(firstId.aggregateName)
+                .runCollect
+            } yield assert(actual.toList)(equalTo(ids.filter(_.aggregateName == firstId.aggregateName))))
+              .provideSome[R](repository)
+          }
+        },
+        test("listEventStreamWithName should return streams by reverse order of creation") {
+          check(
+            Gen
+              .setOfN(2)(aggregateNameGen)
+              .flatMap(name => Gen.listOfBounded(1, 20)(eventsGen(eventGen, Gen.elements(name.toList*))))
+          ) { events =>
+            (for {
+              repository <- ZIO.service[EventRepository[Decoder, Encoder]]
+              firstId = events.head._1
+              ids <- ZIO.foreach(events) { case (id, firstEvents, _) =>
+                repository.saveEvents(id, firstEvents).as(id)
+              }
+              _ <- ZIO.foreachParDiscard(events) { case (id, _, remainder) =>
+                repository.saveEvents(id, remainder)
               }
               actual <- repository
                 .listEventStreamWithName(firstId.aggregateName, Direction.Backward)
@@ -576,8 +582,8 @@ object EventRepositorySpec {
                       isLeft[SaveEventError](
                         equalTo(
                           VersionConflict(
-                            provided = AggregateVersion(events1.length),
-                            required = AggregateVersion(events1.length + events2.length)
+                            provided = events1.foldLeft(AggregateVersion.initial)((s, _) => s.next),
+                            required = (events1 ++ events2).foldLeft(AggregateVersion.initial)((s, _) => s.next)
                           )
                         )
                       )

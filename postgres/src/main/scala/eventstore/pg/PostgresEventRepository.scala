@@ -287,9 +287,10 @@ private object Req {
      		"""
     )
 
-  def selectMaxVersion(eventStreamId: EventStreamId) =
-    sql"""select coalesce(max(aggregateVersion) + 1, 0)
+  def selectMaxVersion(eventStreamId: EventStreamId) = {
+    sql"""select coalesce(max(aggregateVersion) + 1, ${AggregateVersion.initial})
           from events
           where aggregateid=${eventStreamId.aggregateId}
           and aggregatename=${eventStreamId.aggregateName}"""
+  }
 }
