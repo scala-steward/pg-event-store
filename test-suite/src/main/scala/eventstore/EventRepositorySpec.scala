@@ -518,7 +518,7 @@ object EventRepositorySpec {
                 actual <- repository
                   .listEventStreamWithName(AggregateName("Foo"))
                   .runCollect
-              } yield assert(actual)(hasSameElements(Seq(stream1, stream2))))
+              } yield assert(actual)(equalTo(Seq(stream1, stream2))))
                 .provideSome[R](repository)
           }
         },

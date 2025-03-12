@@ -258,9 +258,13 @@ private object Req {
 		  order by eventStoreVersion"""
 
   def listStreams(aggregateName: AggregateName): Fragment =
-    sql"""select distinct aggregateid, aggregatename
-		  from events
-   		  where aggregatename=$aggregateName"""
+    sql"""with aggregateWithMinVersion as (
+            select aggregateid, aggregatename, min(eventStoreVersion) as version
+		    from events
+		    where aggregatename=$aggregateName
+		    group by (aggregateid, aggregatename)
+		    order by version)
+          select aggregateid, aggregatename from aggregateWithMinVersion"""
 
   def insert[A: Put, DoneBy: Put]: Update[RepositoryWriteEvent[A, DoneBy]] =
     Update[RepositoryWriteEvent[A, DoneBy]](
