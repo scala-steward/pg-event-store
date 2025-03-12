@@ -8,6 +8,7 @@ import doobie.implicits._
 import doobie.postgres.implicits._
 import doobie.util.update.Update
 import eventstore.EventRepository
+import eventstore.EventRepository.Direction
 import eventstore.EventRepository.Error.Unexpected
 import eventstore.EventRepository.Error.VersionConflict
 import eventstore.EventRepository.EventsOps
@@ -93,9 +94,12 @@ class PostgresEventRepositoryLive(
       .tapErrorCause(ZIO.logErrorCause("getAllEvents", _))
       .mapError(Unexpected.apply)
 
-  override def listEventStreamWithName(aggregateName: AggregateName): Stream[Unexpected, EventStreamId] =
+  override def listEventStreamWithName(
+      aggregateName: AggregateName,
+      direction: Direction = Direction.Forward
+  ): Stream[Unexpected, EventStreamId] =
     Req
-      .listStreams(aggregateName)
+      .listStreams(aggregateName, direction)
       .query[EventStreamId]
       .stream
       .transact(transactor)
@@ -257,14 +261,19 @@ private object Req {
 		  from events
 		  order by eventStoreVersion"""
 
-  def listStreams(aggregateName: AggregateName): Fragment =
+  def listStreams(aggregateName: AggregateName, direction: Direction): Fragment = {
+    val order = direction match {
+      case Direction.Backward => fr"desc"
+      case Direction.Forward  => fr"asc"
+    }
     sql"""with aggregateWithMinVersion as (
             select aggregateid, aggregatename, min(eventStoreVersion) as version
-		    from events
-		    where aggregatename=$aggregateName
-		    group by (aggregateid, aggregatename)
-		    order by version)
+   		    from events
+   		    where aggregatename=$aggregateName
+   		    group by (aggregateid, aggregatename) 
+   		    order by version $order)
           select aggregateid, aggregatename from aggregateWithMinVersion"""
+  }
 
   def insert[A: Put, DoneBy: Put]: Update[RepositoryWriteEvent[A, DoneBy]] =
     Update[RepositoryWriteEvent[A, DoneBy]](

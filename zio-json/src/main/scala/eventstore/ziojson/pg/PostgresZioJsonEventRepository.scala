@@ -3,6 +3,7 @@ package eventstore.ziojson.pg
 import doobie.Get
 import doobie.Put
 import eventstore.EventRepository
+import eventstore.EventRepository.Direction
 import eventstore.EventRepository.Error.Unexpected
 import eventstore.RepositoryEvent
 import eventstore.RepositoryWriteEvent
@@ -64,8 +65,11 @@ private class PostgresZioJsonEventRepository(
     postgresEventRepositoryLive.getAllEvents[A, DoneBy]
   }
 
-  override def listEventStreamWithName(aggregateName: AggregateName): ZStream[Any, Unexpected, EventStreamId] =
-    postgresEventRepositoryLive.listEventStreamWithName(aggregateName)
+  override def listEventStreamWithName(
+      aggregateName: AggregateName,
+      direction: Direction = Direction.Forward
+  ): ZStream[Any, Unexpected, EventStreamId] =
+    postgresEventRepositoryLive.listEventStreamWithName(aggregateName, direction)
 }
 
 object PostgresZioJsonEventRepository {

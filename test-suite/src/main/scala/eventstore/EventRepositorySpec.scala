@@ -2,7 +2,7 @@ package eventstore
 
 import types.{AggregateId, AggregateName, AggregateVersion, EventStoreVersion, EventStreamId, ProcessId}
 import EventRepository.Error.{Unexpected, VersionConflict}
-import EventRepository.{SaveEventError, Subscription}
+import EventRepository.{Direction, SaveEventError, Subscription}
 import zio.stream.{UStream, ZStream}
 import zio.{Chunk, Random, Ref, Tag, TagK, URLayer, ZIO, durationInt}
 import zio.test.*
@@ -518,8 +518,46 @@ object EventRepositorySpec {
                 actual <- repository
                   .listEventStreamWithName(AggregateName("Foo"))
                   .runCollect
-              } yield assert(actual)(equalTo(Seq(stream1, stream2))))
+              } yield assert(actual)(hasSameElements(Seq(stream1, stream2))))
                 .provideSome[R](repository)
+          }
+        },
+        test("listEventStreamWithName should return streams by order of creation") {
+          check(Gen.setOfN(2)(aggregateNameGen)
+            .flatMap(name => Gen.listOfBounded(1, 20)(eventsGen(eventGen, Gen.elements(name.toList*))))) { events =>
+              (for {
+                repository <- ZIO.service[EventRepository[Decoder, Encoder]]
+                firstId = events.head._1
+                ids <- ZIO.foreach(events) {
+                  case (id, firstEvents, _) => repository.saveEvents(id, firstEvents).as(id)
+                }
+                _ <- ZIO.foreachParDiscard(events) {
+                  case (id, _, remainder) => repository.saveEvents(id, remainder)
+                }
+                actual <- repository
+                  .listEventStreamWithName(firstId.aggregateName)
+                  .runCollect
+              } yield assert(actual.toList)(equalTo(ids.filter(_.aggregateName == firstId.aggregateName))))
+                .provideSome[R](repository)
+          }
+        },
+        test("listEventStreamWithName should return streams by reverse order of creation") {
+          check(Gen.setOfN(2)(aggregateNameGen)
+            .flatMap(name => Gen.listOfBounded(1, 20)(eventsGen(eventGen, Gen.elements(name.toList*))))) { events =>
+            (for {
+              repository <- ZIO.service[EventRepository[Decoder, Encoder]]
+              firstId = events.head._1
+              ids <- ZIO.foreach(events) {
+                case (id, firstEvents, _) => repository.saveEvents(id, firstEvents).as(id)
+              }
+              _ <- ZIO.foreachParDiscard(events) {
+                case (id, _, remainder) => repository.saveEvents(id, remainder)
+              }
+              actual <- repository
+                .listEventStreamWithName(firstId.aggregateName, Direction.Backward)
+                .runCollect
+            } yield assert(actual.toList)(equalTo(ids.filter(_.aggregateName == firstId.aggregateName).reverse)))
+              .provideSome[R](repository)
           }
         },
         test("save should not write events with conflicting versions") {

@@ -12,7 +12,7 @@ import zio.ZIO
 import zio._
 import zio.stream.ZStream
 
-import EventRepository.Error
+import EventRepository.{Direction, Error}
 
 private class PostgresPlayJsonEventRepository(
     postgresEventRepositoryLive: EventRepository[Get, Put]
@@ -69,9 +69,10 @@ private class PostgresPlayJsonEventRepository(
   }
 
   override def listEventStreamWithName(
-      aggregateName: AggregateName
+      aggregateName: AggregateName,
+      direction: Direction = Direction.Forward
   ): ZStream[Any, Error.Unexpected, EventStreamId] =
-    postgresEventRepositoryLive.listEventStreamWithName(aggregateName)
+    postgresEventRepositoryLive.listEventStreamWithName(aggregateName, direction)
 }
 
 object PostgresPlayJsonEventRepository {

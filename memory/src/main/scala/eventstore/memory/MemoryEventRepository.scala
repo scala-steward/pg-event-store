@@ -15,9 +15,11 @@ import zio.stm.ZSTM
 import zio.stream.Stream
 import zio.stream.ZStream
 
+import scala.collection.immutable.ListSet
+
 import EventRepository.Error.Unexpected
 import EventRepository.Error.VersionConflict
-import EventRepository.{EventsOps, SaveEventError, Subscription}
+import EventRepository.{Direction, EventsOps, SaveEventError, Subscription}
 
 class MemoryEventRepository[UnusedDecoder[_], UnusedEncoder[_]](
     storageRef: TRef[Storage],
@@ -56,10 +58,17 @@ class MemoryEventRepository[UnusedDecoder[_], UnusedEncoder[_]](
       }
     }
 
-  override def listEventStreamWithName(aggregateName: AggregateName): Stream[Unexpected, EventStreamId] =
+  override def listEventStreamWithName(
+      aggregateName: AggregateName,
+      direction: Direction = Direction.Forward
+  ): Stream[Unexpected, EventStreamId] =
     ZStream.fromIterableZIO(
-      for { events <- storageRef.get.map(_.byAggregate).commit } yield {
-        events.keys.filter(_.aggregateName == aggregateName)
+      for { aggregates <- storageRef.get.map(_.aggregates).commit } yield {
+        val naturalyOrdered = aggregates.filter(_.aggregateName == aggregateName).toList
+        direction match {
+          case Direction.Forward  => naturalyOrdered
+          case Direction.Backward => naturalyOrdered.reverse
+        }
       }
     )
 
@@ -94,7 +103,8 @@ object MemoryEventRepository {
 
   case class Storage(
       events: List[RepositoryEvent[?, ?]],
-      byAggregate: Map[EventStreamId, List[RepositoryEvent[?, ?]]]
+      byAggregate: Map[EventStreamId, List[RepositoryEvent[?, ?]]],
+      aggregates: ListSet[EventStreamId]
   ) {
 
     def appendEvents[A: Tag, DoneBy: Tag](
@@ -108,7 +118,8 @@ object MemoryEventRepository {
         newRepositoryEvents = newEvents.toRepositoryEvents(eventStoreVersion)
       } yield copy(
         byAggregate = byAggregate.updated(eventStreamId, currentEvents ++ newRepositoryEvents),
-        events = events ++ newRepositoryEvents
+        events = events ++ newRepositoryEvents,
+        aggregates = aggregates + eventStreamId
       ) -> newRepositoryEvents
     }
 
@@ -159,7 +170,7 @@ object MemoryEventRepository {
   def layer[UnusedDecoder[_]: TagK, UnusedEncoder[_]: TagK]: ULayer[EventRepository[UnusedDecoder, UnusedEncoder]] = {
     ZLayer {
       for {
-        map <- TRef.makeCommit(Storage(List.empty, Map.empty))
+        map <- TRef.makeCommit(Storage(List.empty, Map.empty, ListSet.empty))
         hub <- Hub.unbounded[RepositoryEvent[Any, Any]]
       } yield new MemoryEventRepository(map, hub)
     }

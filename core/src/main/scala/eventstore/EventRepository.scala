@@ -1,5 +1,6 @@
 package eventstore
 
+import eventstore.EventRepository.Direction
 import eventstore.EventRepository.Error.Unexpected
 import eventstore.EventRepository.SaveEventError
 import eventstore.EventRepository.Subscription
@@ -17,6 +18,12 @@ import zio.stream.Stream
 import zio.stream.ZStream
 
 object EventRepository {
+
+  sealed trait Direction
+  object Direction {
+    case object Forward extends Direction
+    case object Backward extends Direction
+  }
 
   trait Subscription[EventType, DoneBy] {
     def restartFromFirstEvent(lastEventToHandle: EventStoreVersion): UIO[Unit]
@@ -74,7 +81,10 @@ trait EventRepository[Decoder[_], Encoder[_]] {
 
   def getAllEvents[A: Decoder: Tag, DoneBy: Decoder: Tag]: Stream[Unexpected, RepositoryEvent[A, DoneBy]]
 
-  def listEventStreamWithName(aggregateName: AggregateName): Stream[Unexpected, EventStreamId]
+  def listEventStreamWithName(
+      aggregateName: AggregateName,
+      direction: Direction = Direction.Forward
+  ): Stream[Unexpected, EventStreamId]
 
   def getEventStream[A: Decoder: Tag, DoneBy: Decoder: Tag](
       eventStreamId: EventStreamId
