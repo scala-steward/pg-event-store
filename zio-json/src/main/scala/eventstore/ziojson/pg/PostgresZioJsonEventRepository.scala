@@ -11,6 +11,7 @@ import eventstore.types.AggregateName
 import eventstore.types.EventStreamId
 import zio._
 import zio.json._
+import zio.stream.Stream
 import zio.stream.ZStream
 
 private class PostgresZioJsonEventRepository(
@@ -59,7 +60,7 @@ private class PostgresZioJsonEventRepository(
   }
 
   override def getAllEvents[A: JsonDecoder: Tag, DoneBy: JsonDecoder: Tag]
-      : ZStream[Any, Unexpected, RepositoryEvent[A, DoneBy]] = {
+      : ZIO[Scope, Nothing, Stream[Unexpected, RepositoryEvent[A, DoneBy]]] = {
     implicit val getA: Get[A] = getJson[A]
     implicit val getDoneBy: Get[DoneBy] = getJson[DoneBy]
     postgresEventRepositoryLive.getAllEvents[A, DoneBy]

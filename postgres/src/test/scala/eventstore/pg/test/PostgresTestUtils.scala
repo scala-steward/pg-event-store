@@ -5,6 +5,11 @@ import com.zaxxer.hikari.HikariConfig
 import doobie.Fragment
 import doobie.hikari.HikariTransactor
 import doobie.util.fragment
+import doobie.util.log.ExecFailure
+import doobie.util.log.LogHandler
+import doobie.util.log.Parameters
+import doobie.util.log.ProcessingFailure
+import doobie.util.log.Success
 import eventstore.pg.Postgres.DbConfig
 import eventstore.pg.Postgres.ZTransactor
 import org.testcontainers.utility.DockerImageName
@@ -33,6 +38,56 @@ object PostgresTestUtils {
     hconfig
   }
 
+  val doobieLogger: LogHandler[Task] = {
+    case Success(s, a, l, e1, e2) =>
+      val paramsStr = a match {
+        case nonBatch: Parameters.NonBatch => s"[${nonBatch.paramsAsList.mkString(", ")}]"
+        case _: Parameters.Batch           => "<batch arguments not rendered>"
+      }
+      ZIO.debug(
+        s"""Successful Statement Execution:
+           |
+           |  ${s.linesIterator.dropWhile(_.trim.isEmpty).mkString("\n  ")}
+           |
+           | parameters = $paramsStr
+           | label     = $l
+           | elapsed = ${e1.toMillis.toString} ms exec + ${e2.toMillis.toString} ms processing (${(e1 + e2).toMillis.toString} ms total)
+              """.stripMargin
+      )
+
+    case ProcessingFailure(s, a, l, e1, e2, t) =>
+      val paramsStr = a.allParams
+        .map(thisArgs => thisArgs.mkString("(", ", ", ")"))
+        .mkString("[", ", ", "]")
+      ZIO.debug(
+        s"""Failed Resultset Processing:
+           |
+           |  ${s.linesIterator.dropWhile(_.trim.isEmpty).mkString("\n  ")}
+           |
+           | parameters = $paramsStr
+           | label     = $l
+           | elapsed = ${e1.toMillis.toString} ms exec + ${e2.toMillis.toString} ms processing (failed) (${(e1 + e2).toMillis.toString} ms total)
+           | failure = ${t.getMessage}
+              """.stripMargin
+      )
+
+    case ExecFailure(s, a, l, e1, t) =>
+      val paramsStr = a.allParams
+        .map(thisArgs => thisArgs.mkString("(", ", ", ")"))
+        .mkString("[", ", ", "]")
+      ZIO.debug(
+        s"""Failed Statement Execution:
+           |
+           |  ${s.linesIterator.dropWhile(_.trim.isEmpty).mkString("\n  ")}
+           |
+           | parameters = $paramsStr
+           | label     = $l
+           | elapsed = ${e1.toMillis.toString} ms exec (failed)
+           | failure = ${t.getMessage}
+              """.stripMargin
+      )
+  }
+
   val transactorLayer: ZLayer[DbConfig, Throwable, ZTransactor] = {
     ZLayer.scoped {
       for {
@@ -41,7 +96,8 @@ object PostgresTestUtils {
         pool <- HikariTransactor
           .fromHikariConfigCustomEc[Task](
             hconfig,
-            executionContext
+            executionContext,
+            logHandler = None
           )
           .toScopedZIO
       } yield pool

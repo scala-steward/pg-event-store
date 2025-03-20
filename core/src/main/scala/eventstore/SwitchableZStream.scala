@@ -1,10 +1,13 @@
 package eventstore
 
 import eventstore.SwitchableZStream.Command
+import eventstore.SwitchableZStream.Command.SwitchToEmptyPastEvents
 import eventstore.SwitchableZStream.CommandOrEvent
 import eventstore.SwitchableZStream.Message
 import eventstore.SwitchableZStream.StreamState
+import zio.Chunk
 import zio.Dequeue
+import zio.Exit
 import zio.IO
 import zio.Queue
 import zio.Ref
@@ -16,7 +19,7 @@ import zio.stream.ZStream
 
 private[eventstore] class SwitchableZStream[-R, +E, +A] private (
     liveStream: ZStream[R, E, A],
-    loadPastEvents: UIO[ZStream[R, E, A]],
+    loadPastEvents: ZIO[Scope, E, ZStream[R, E, A]],
     stateRef: Ref[StreamState[E, A]],
     commands: Queue[Command[A]]
 ) {
@@ -31,9 +34,9 @@ private[eventstore] class SwitchableZStream[-R, +E, +A] private (
           for {
             previousState <- stateRef.getAndSet(state)
             _ <- previousState match {
-              case s: StreamState.PastEvents[_, _] => s.pastEventQueue.shutdown
-              case StreamState.NotStarted          => ZIO.unit
-              case StreamState.Live                => ZIO.unit
+              case StreamState.PastEvents(_, _, scope) => scope.close(Exit.Success(()))
+              case StreamState.Live                    => ZIO.unit
+              case StreamState.NotStarted              => ZIO.unit
             }
           } yield state
 
@@ -54,7 +57,8 @@ private[eventstore] class SwitchableZStream[-R, +E, +A] private (
             .unsome
             .someOrElseZIO(
               events.takeAsEvent
-                .raceEither(commands.take)
+                .map(Left(_))
+                .raceFirst(commands.take.map(Right(_)))
                 .map {
                   case Left(event)    => CommandOrEvent.Event(event)
                   case Right(command) => CommandOrEvent.Command(command)
@@ -62,15 +66,19 @@ private[eventstore] class SwitchableZStream[-R, +E, +A] private (
             )
         }
 
-        def handle(commandOrEvent: CommandOrEvent[A]) = commandOrEvent match {
+        def handle(commandOrEvent: CommandOrEvent[A]): ZIO[R, E, Chunk[Message[A]]] = commandOrEvent match {
           case CommandOrEvent.Command(Command.SwitchToLive) =>
-            setState(StreamState.Live).as(Message.SwitchedToLive)
+            setState(StreamState.Live).as(Chunk(Message.SwitchedToLive))
 
           case CommandOrEvent.Command(c: Command.SwitchToPastEvents[A]) =>
             for {
-              pastEvents <- loadPastEvents.flatMap(_.map(Message.Event(_)).toQueue())
-              _ <- setState(StreamState.PastEvents(pastEventQueue = pastEvents, until = c.until))
-            } yield Message.SwitchedToPastEvents
+              scope <- Scope.make
+              pastEvents <- scope.extend[R] { loadPastEvents.flatMap(_.map(Message.Event(_)).toQueue()) }
+              _ <- setState(StreamState.PastEvents(pastEventQueue = pastEvents, until = c.until, scope = scope))
+            } yield Chunk(Message.SwitchedToPastEvents)
+
+          case CommandOrEvent.Command(SwitchToEmptyPastEvents) =>
+            ZIO.succeed(Chunk(Message.SwitchedToPastEvents, Message.SwitchedToLive))
 
           case CommandOrEvent.Event(event) =>
             for {
@@ -80,29 +88,31 @@ private[eventstore] class SwitchableZStream[-R, +E, +A] private (
                   ZIO.when(pastEvents.until(a))(switchToLive)
                 case _ => ZIO.unit
               }
-            } yield event
+            } yield Chunk(event)
         }
 
         ZStream
-          .repeatZIO {
+          .repeatZIOChunk {
             for {
               state <- stateRef.get
               runningQueue = selectRunningQueue(state)
               commandOrEvent <- commandOrEvent(commands, runningQueue)
-              message <- handle(commandOrEvent)
-            } yield message
+              messages <- handle(commandOrEvent)
+            } yield messages
           }
       }
     }
 
-  def switchToLive: UIO[Unit] = commands.offer(Command.SwitchToLive).unit
-  def switchToPastEvents: UIO[Unit] = switchToPastEvents(until = (_: A) => false)
+  private def switchToLive: UIO[Unit] = commands.offer(Command.SwitchToLive).unit
+
+  /** This method solves the problem of having an empty stream2 by not trying to consume it at all.
+    */
+  def switchToEmptyPastEvents: UIO[Unit] = commands.offer(Command.SwitchToEmptyPastEvents).unit
 
   /** This method allows to switch from live stream to past events stream and switch back to live stream automatically
     * once the condition is met.
     */
-  def switchToPastEvents(until: A => Boolean): UIO[Unit] =
-    commands.offer(Command.SwitchToPastEvents(until)).unit
+  def switchToPastEvents(until: A => Boolean): UIO[Unit] = commands.offer(Command.SwitchToPastEvents(until)).unit
 
   implicit class QueueOps[E1, B](queue: Dequeue[Take[E1, Message.Event[B]]]) {
 
@@ -120,10 +130,11 @@ private[eventstore] class SwitchableZStream[-R, +E, +A] private (
 
 private[eventstore] object SwitchableZStream {
 
-  private sealed trait Command[+A]
-  private object Command {
+  private[eventstore] sealed trait Command[+A]
+  private[eventstore] object Command {
     case object SwitchToLive extends Command[Nothing]
     case class SwitchToPastEvents[A](until: A => Boolean) extends Command[A]
+    case object SwitchToEmptyPastEvents extends Command[Nothing]
   }
 
   private sealed trait CommandOrEvent[+A]
@@ -136,8 +147,11 @@ private[eventstore] object SwitchableZStream {
   private object StreamState {
     case object NotStarted extends StreamState[Nothing, Nothing]
     case object Live extends StreamState[Nothing, Nothing]
-    case class PastEvents[E, A](pastEventQueue: Dequeue[Take[E, Message.Event[A]]], until: A => Boolean)
-        extends StreamState[E, A]
+    case class PastEvents[E, A](
+        pastEventQueue: Dequeue[Take[E, Message.Event[A]]],
+        until: A => Boolean,
+        scope: Scope.Closeable
+    ) extends StreamState[E, A]
   }
 
   sealed trait Message[+A]
@@ -149,7 +163,7 @@ private[eventstore] object SwitchableZStream {
 
   def from[R, E, A](
       stream1: ZStream[R, E, A],
-      stream2: UIO[ZStream[R, E, A]]
+      stream2: ZIO[Scope, E, ZStream[R, E, A]]
   ): UIO[SwitchableZStream[R, E, A]] =
     for {
       stateRef <- Ref.make[StreamState[E, A]](StreamState.NotStarted)
@@ -162,5 +176,4 @@ private[eventstore] object SwitchableZStream {
       stateRef = stateRef,
       commands = commands
     )
-
 }
