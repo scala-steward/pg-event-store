@@ -3,6 +3,7 @@ package eventstore
 import types.{AggregateId, AggregateName, AggregateVersion, EventStoreVersion, EventStreamId, ProcessId}
 import EventRepository.Error.{Unexpected, VersionConflict}
 import EventRepository.{Direction, SaveEventError, Subscription}
+import eventstore.EventRepository.LastEventToHandle.{LastEvent, Version}
 import zio.stream.{UStream, ZStream}
 import zio.{Chunk, Random, Ref, Tag, TagK, URLayer, ZIO, durationInt}
 import zio.test.*
@@ -115,8 +116,8 @@ object EventRepositorySpec {
   def eventsGen[EventType: Tag](
       eventGen: Gen[Any, EventType],
       nameGen: Gen[Any, AggregateName] = aggregateNameGen,
-      size1Gen: Gen[Any, Int] = Gen.int(1, 20),
-      size2Gen: Gen[Any, Int] = Gen.int(1, 20)
+      size1Gen: Gen[Any, Int] = Gen.int(0, 20),
+      size2Gen: Gen[Any, Int] = Gen.int(0, 20)
   ): Gen[
     Any,
     (
@@ -139,6 +140,8 @@ object EventRepositorySpec {
       (events1, events2) = events.splitAt(size1)
     } yield (streamId, events1, events2)
   }
+
+  val atLeastOne = Gen.int(1, 20)
 
   case class Codecs[Decoder[_], Encoder[_]](
       eventDecoder: Decoder[Event],
@@ -432,8 +435,8 @@ object EventRepositorySpec {
                       ).runCollect
                       _ <- ZIO.foreachDiscard(events)(save)
                       result <- repository
-                        .getAllEvents[Event, User]
-                        .runCollect
+                        .getAllEvents[Event, User].flatMap(_.runCollect)
+
                     } yield assert(result.asRepositoryWriteEvents)(
                       equalTo(events)
                     )
@@ -456,8 +459,8 @@ object EventRepositorySpec {
                         .take(events1.length.toLong + events2.length)
                         .runCollect
                       result <- repository
-                        .getAllEvents[Event, User]
-                        .runCollect
+                        .getAllEvents[Event, User].flatMap(_.runCollect)
+
                     } yield assert(result)(equalTo(fromListen))
                   }
                   .provideSome[R](repository)
@@ -498,11 +501,11 @@ object EventRepositorySpec {
         },
         test("listEventStreamWithName should only matching streams") {
           check(
-            eventsGen(eventGen, Gen.const(AggregateName("Foo"))),
-            eventsGen(eventGen, Gen.const(AggregateName("Foo"))),
+            eventsGen(eventGen, Gen.const(AggregateName("Foo")), size1Gen = atLeastOne),
+            eventsGen(eventGen, Gen.const(AggregateName("Foo")), size1Gen = atLeastOne),
             eventsGen(
               eventGen,
-              aggregateNameGen.filter(_ != AggregateName("Foo"))
+              aggregateNameGen.filter(_ != AggregateName("Foo")), size1Gen = atLeastOne
             )
           ) {
             case (
@@ -526,7 +529,7 @@ object EventRepositorySpec {
           check(
             Gen
               .setOfN(2)(aggregateNameGen)
-              .flatMap(name => Gen.listOfBounded(1, 20)(eventsGen(eventGen, Gen.elements(name.toList*))))
+              .flatMap(name => Gen.listOfBounded(1, 20)(eventsGen(eventGen, Gen.elements(name.toList*), size1Gen = atLeastOne)))
           ) { events =>
             (for {
               repository <- ZIO.service[EventRepository[Decoder, Encoder]]
@@ -548,7 +551,7 @@ object EventRepositorySpec {
           check(
             Gen
               .setOfN(2)(aggregateNameGen)
-              .flatMap(name => Gen.listOfBounded(1, 20)(eventsGen(eventGen, Gen.elements(name.toList*))))
+              .flatMap(name => Gen.listOfBounded(1, 20)(eventsGen(eventGen, Gen.elements(name.toList*), size1Gen = atLeastOne)))
           ) { events =>
             (for {
               repository <- ZIO.service[EventRepository[Decoder, Encoder]]
@@ -567,7 +570,7 @@ object EventRepositorySpec {
           }
         },
         test("save should not write events with conflicting versions") {
-          check(eventsGen(eventGen)) { case (streamId, events1, events2) =>
+          check(eventsGen(eventGen, size2Gen = atLeastOne)) { case (streamId, events1, events2) =>
             ZIO
               .scoped {
                 val save = ZIO.serviceWithZIO[EventRepository[Decoder, Encoder]](_.saveEvents(streamId, events2).either)
@@ -602,7 +605,7 @@ object EventRepositorySpec {
         test(
           "listen should publish reset event before feeding events from the past"
         ) {
-          check(eventsGen(eventGen)) { case (firstStreamId, events1, events2) =>
+          check(eventsGen(eventGen, size1Gen = atLeastOne)) { case (firstStreamId, events1, events2) =>
             val nbEvents1 = events1.length.toLong
             val nbEvents2 = events2.length.toLong
             ZIO
@@ -614,7 +617,7 @@ object EventRepositorySpec {
                   _ <- repository.saveEvents(firstStreamId, events2)
                   lastKnownVersionForEvents2 <- repository
                     .getAllEvents[Event1, User]
-                    .runLast
+                    .flatMap(_.runLast)
                     .map(
                       _.map(_.eventStoreVersion)
                         .getOrElse(EventStoreVersion.initial)
@@ -626,7 +629,7 @@ object EventRepositorySpec {
                           e.eventStoreVersion == lastKnownVersionForEvents2
                         )(
                           subscription.restartFromFirstEvent(
-                            lastKnownVersionForEvents2
+                            Version(lastKnownVersionForEvents2)
                           )
                         )
                       case _ => ZIO.unit
@@ -648,6 +651,106 @@ object EventRepositorySpec {
               )
               .provideSome[R](repository)
           }
+        },
+        test(
+          "listen should publish reset event when we have events before and then reseting up to the last event"
+        ) {
+          check(eventsGen(eventGen, size2Gen = atLeastOne)) { case (firstStreamId, events1, events2) =>
+            val nbEvents1 = events1.length.toLong
+            val nbEvents2 = events2.length.toLong
+            ZIO
+              .scoped(
+                for {
+                  repository <- ZIO.service[EventRepository[Decoder, Encoder]]
+                  _ <- repository.saveEvents(firstStreamId, events1)
+                  subscription <- repository.listen[Event1, User]
+                  _ <- repository.saveEvents(firstStreamId, events2)
+                  lastKnownVersionForEvents2 <- repository
+                    .getAllEvents[Event1, User]
+                    .flatMap(_.runLast)
+                    .map(
+                      _.map(_.eventStoreVersion)
+                        .getOrElse(EventStoreVersion.initial)
+                    )
+                  result <- subscription.stream
+                    .tap {
+                      case e: RepositoryEvent[Event1, User] =>
+                        ZIO.when(
+                          e.eventStoreVersion == lastKnownVersionForEvents2
+                        )(
+                          subscription.restartFromFirstEvent(LastEvent)
+                        )
+                      case _ => ZIO.unit
+                    }
+                    .map {
+                      case e: RepositoryEvent[Event1, User] => e.asString
+                      case _: Reset[?, ?]                   => "reset"
+                    }
+                    .take(nbEvents1 + nbEvents2 * 2 + 1)
+                    .timeout(1.seconds)
+                    .runCollect
+                } yield assert(result.toList)(
+                  equalTo(
+                    events2.asStrings ++ Seq(
+                      "reset"
+                    ) ++ events1.asStrings ++ events2.asStrings
+                  )
+                )
+              )
+              .provideSome[R](repository)
+          }
+        },
+        test(
+          "listen should publish reset event when reseting up to the last event but no events yet"
+        ) {
+          check(eventsGen(eventGen, size1Gen = atLeastOne)) { case (firstStreamId, events1, _) =>
+            ZIO
+              .scoped(
+                for {
+                  repository <- ZIO.service[EventRepository[Decoder, Encoder]]
+                  subscription <- repository.listen[Event1, User]
+                  resultFiber <- Live.live(subscription.stream
+                    .tap {
+                      case _: Reset[?, ?] => repository.saveEvents(firstStreamId, events1)
+                      case _ => ZIO.unit
+                    }
+                    .map {
+                      case e: RepositoryEvent[Event1, User] => e.asString
+                      case _: Reset[?, ?] => "reset"
+                    }
+                    .take(1 + events1.length)
+                    .timeout(2.seconds)
+                    .runCollect
+                    .fork)
+                  _ <- subscription.restartFromFirstEvent(LastEvent)
+                  result <- resultFiber.join
+                } yield assert(result.toList)(hasSameElements(Seq("reset") ++ events1.asStrings))
+              )
+              .provideSome[R](repository)
+          }
+        },
+        test(
+          "listen should publish new events after a last-event-reset when no events"
+        ) {
+          ZIO
+            .scoped(
+              for {
+                repository <- ZIO.service[EventRepository[Decoder, Encoder]]
+                subscription <- repository.listen[Event1, User]
+                resultFiber <- Live.live(subscription.stream
+                  .map {
+                    case e: RepositoryEvent[Event1, User] => e.asString
+                    case _: Reset[?, ?]                   => "reset"
+                  }
+                  .take(1)
+                  .timeout(1.seconds)
+                  .runCollect
+                  .fork)
+                _ <- subscription.restartFromFirstEvent(LastEvent)
+                result <- resultFiber.join
+              } yield assert(result.toList)(hasSameElements(Seq("reset")))
+            )
+            .provideSome[R](repository)
         },
         test("listen should stream appended events") {
           check(eventsGen(eventGen)) { case (firstStreamId, events, _) =>
@@ -672,7 +775,7 @@ object EventRepositorySpec {
           }
         },
         test("listen should switch to first events") {
-          check(eventsGen(eventGen)) { case (firstStreamId, events1, events2) =>
+          check(eventsGen(eventGen, size2Gen = atLeastOne)) { case (firstStreamId, events1, events2) =>
             val nbEvents1 = events1.length.toLong
             val nbEvents2 = events2.length.toLong
             ZIO
@@ -684,7 +787,7 @@ object EventRepositorySpec {
                   _ <- repository.saveEvents(firstStreamId, events2)
                   lastKnownVersionForEvents2 <- repository
                     .getAllEvents[Event1, User]
-                    .runLast
+                    .flatMap(_.runLast)
                     .map(
                       _.map(_.eventStoreVersion)
                         .getOrElse(EventStoreVersion.initial)
@@ -699,7 +802,7 @@ object EventRepositorySpec {
                         event.eventStoreVersion == lastKnownVersionForEvents2
                       )(
                         subscription.restartFromFirstEvent(
-                          lastKnownVersionForEvents2
+                          Version(lastKnownVersionForEvents2)
                         )
                       )
                     )
@@ -727,7 +830,7 @@ object EventRepositorySpec {
                   _ <- repository.saveEvents(firstStreamId, events1)
                   lastKnownVersionForEvents <- repository
                     .getAllEvents[Event1, User]
-                    .runLast
+                    .flatMap(_.runLast)
                     .map(
                       _.map(_.eventStoreVersion)
                         .getOrElse(EventStoreVersion.initial)
@@ -742,7 +845,7 @@ object EventRepositorySpec {
                         event.eventStoreVersion == lastKnownVersionForEvents
                       )(
                         subscription
-                          .restartFromFirstEvent(lastKnownVersionForEvents)
+                          .restartFromFirstEvent(Version(lastKnownVersionForEvents))
                           .executeTwice(restartedCounter)
                       )
                     )
@@ -771,7 +874,7 @@ object EventRepositorySpec {
                   _ <- repository.saveEvents(firstStreamId, events1)
                   lastKnownVersionForEvents <- repository
                     .getAllEvents[Event1, User]
-                    .runLast
+                    .flatMap(_.runLast)
                     .map(
                       _.map(_.eventStoreVersion)
                         .getOrElse(EventStoreVersion.initial)
@@ -786,7 +889,7 @@ object EventRepositorySpec {
                         event.eventStoreVersion == lastKnownVersionForEvents
                       )(
                         subscription
-                          .restartFromFirstEvent(lastKnownVersionForEvents)
+                          .restartFromFirstEvent(Version(lastKnownVersionForEvents))
                           .executeOnce(restartedCounter)
                       )
                     )
@@ -805,7 +908,7 @@ object EventRepositorySpec {
         test(
           "listen should read events prior to the listening start then next live events"
         ) {
-          check(eventsGen(eventGen)) { case (firstStreamId, events1, events2) =>
+          check(eventsGen(eventGen, size2Gen = atLeastOne)) { case (firstStreamId, events1, events2) =>
             val nbEvents1 = events1.length.toLong
             val nbEvents2 = events2.length.toLong
             ZIO
@@ -816,7 +919,7 @@ object EventRepositorySpec {
                   _ <- repository.saveEvents(firstStreamId, events1)
                   lastKnownVersionForEvents <- repository
                     .getAllEvents[Event1, User]
-                    .runLast
+                    .flatMap(_.runLast)
                     .map(
                       _.map(_.eventStoreVersion)
                         .getOrElse(EventStoreVersion.initial)
@@ -832,7 +935,7 @@ object EventRepositorySpec {
                         event.eventStoreVersion == lastKnownVersionForEvents.next
                       )(
                         subscription
-                          .restartFromFirstEvent(lastKnownVersionForEvents.next)
+                          .restartFromFirstEvent(Version(lastKnownVersionForEvents.next))
                           .executeOnce(restartedCounter)
                       )
                     )
@@ -850,7 +953,7 @@ object EventRepositorySpec {
         }
       )
     ) @@ TestAspect.shrinks(0)
-  } @@ TestAspect.timed @@ TestAspect.samples(10)
+  } @@ TestAspect.timeout(30.seconds) @@ TestAspect.timed @@ TestAspect.samples(10)
 
   implicit class Once[R, E, A](self: ZIO[R, E, A]) {
     def executeOnce(store: Ref[Int]) =

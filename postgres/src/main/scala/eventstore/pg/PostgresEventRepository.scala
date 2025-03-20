@@ -27,6 +27,7 @@ import eventstore.types.ProcessId
 import zio._
 import zio.interop.catz._
 import zio.stream.Stream
+import zio.stream.Take
 import zio.stream.ZStream
 import zio.stream.interop.fs2z._
 
@@ -68,7 +69,7 @@ class PostgresEventRepositoryLive(
 
   override def listen[EventType: Get: Tag, DoneBy: Get: Tag]
       : ZIO[Scope, Unexpected, Subscription[EventType, DoneBy]] = {
-    val fromDb = ZIO.succeed(getAllEvents[EventType, DoneBy])
+    val fromDb = getAllEvents[EventType, DoneBy]
     val eventTypeTag = implicitly[Tag[EventType]].tag
     val doneByTag = implicitly[Tag[DoneBy]].tag
 
@@ -82,17 +83,23 @@ class PostgresEventRepositoryLive(
         }
       switchableStream <- SwitchableZStream.from(live, fromDb)
 
-    } yield Subscription.fromSwitchableStream(switchableStream)
+    } yield Subscription.fromSwitchableStream(switchableStream, getLastEventVersion)
   }
 
-  override def getAllEvents[A: Get: Tag, DoneBy: Get: Tag]: Stream[Unexpected, RepositoryEvent[A, DoneBy]] =
-    Req.listAll
-      .query[RepositoryEvent[A, DoneBy]]
-      .stream
-      .transact(transactor)
-      .toZStream()
-      .tapErrorCause(ZIO.logErrorCause("getAllEvents", _))
-      .mapError(Unexpected.apply)
+  override def getAllEvents[A: Get: Tag, DoneBy: Get: Tag]
+      : ZIO[Scope, Nothing, Stream[Unexpected, RepositoryEvent[A, DoneBy]]] =
+    for {
+      queue <- ZIO.acquireRelease(Queue.bounded[Take[Unexpected, RepositoryEvent[A, DoneBy]]](16))(_.shutdown)
+      _ <- Req.listAll
+        .query[RepositoryEvent[A, DoneBy]]
+        .stream
+        .transact(transactor)
+        .toZStream()
+        .mapError(Unexpected.apply)
+        .runIntoQueue(queue)
+        .tapErrorCause(ZIO.logErrorCause("getAllEvents", _))
+        .forkScoped // to not block the flow if the number of events to insert is superior to the queue capacity
+    } yield ZStream.fromQueue(queue).flattenTake
 
   override def listEventStreamWithName(
       aggregateName: AggregateName,
@@ -138,6 +145,13 @@ class PostgresEventRepositoryLive(
         .attemptSql
     }
       .leftMap[SaveEventError](Unexpected.apply)
+
+  private def getLastEventVersion: IO[Unexpected, Option[EventStoreVersion]] =
+    Req.selectLastEventStoreVersion
+      .query[Option[EventStoreVersion]]
+      .unique
+      .transact(transactor)
+      .mapError { Unexpected.apply }
 
   private def insertEvents[DoneBy: Get: Put: Tag, E: Get: Put: Tag](
       eventStreamId: EventStreamId,
@@ -203,7 +217,6 @@ class PostgresEventRepositoryLive(
         }
         .getOrElse(Right(()))
     }
-
 }
 
 object Codecs {
@@ -292,5 +305,9 @@ private object Req {
           from events
           where aggregateid=${eventStreamId.aggregateId}
           and aggregatename=${eventStreamId.aggregateName}"""
+  }
+
+  def selectLastEventStoreVersion = {
+    sql"""select max(eventStoreVersion) from events"""
   }
 }

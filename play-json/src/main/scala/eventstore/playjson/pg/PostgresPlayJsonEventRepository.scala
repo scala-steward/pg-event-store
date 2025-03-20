@@ -1,6 +1,7 @@
 package eventstore.playjson.pg
 import doobie._
 import eventstore.EventRepository
+import eventstore.EventRepository.Error.Unexpected
 import eventstore.RepositoryEvent
 import eventstore.RepositoryWriteEvent
 import eventstore.types.AggregateName
@@ -10,6 +11,7 @@ import play.api.libs.json.Reads
 import play.api.libs.json.Writes
 import zio.ZIO
 import zio._
+import zio.stream.Stream
 import zio.stream.ZStream
 
 import EventRepository.{Direction, Error}
@@ -62,7 +64,7 @@ private class PostgresPlayJsonEventRepository(
   }
 
   override def getAllEvents[A: Reads: Tag, DoneBy: Reads: Tag]
-      : ZStream[Any, Error.Unexpected, RepositoryEvent[A, DoneBy]] = {
+      : ZIO[Scope, Nothing, Stream[Unexpected, RepositoryEvent[A, DoneBy]]] = {
     implicit val getEventType: Get[A] = getJson[A]
     implicit val getDoneBy: Get[DoneBy] = getJson[DoneBy]
     postgresEventRepositoryLive.getAllEvents[A, DoneBy]
@@ -73,6 +75,7 @@ private class PostgresPlayJsonEventRepository(
       direction: Direction = Direction.Forward
   ): ZStream[Any, Error.Unexpected, EventStreamId] =
     postgresEventRepositoryLive.listEventStreamWithName(aggregateName, direction)
+
 }
 
 object PostgresPlayJsonEventRepository {

@@ -12,7 +12,6 @@ import eventstore.types.EventStreamId
 import zio.IO
 import zio.Scope
 import zio.Tag
-import zio.UIO
 import zio.ZIO
 import zio.stream.Stream
 import zio.stream.ZStream
@@ -25,24 +24,43 @@ object EventRepository {
     case object Backward extends Direction
   }
 
+  sealed trait LastEventToHandle
+  object LastEventToHandle {
+    case class Version(version: EventStoreVersion) extends LastEventToHandle
+    case object LastEvent extends LastEventToHandle
+  }
+
   trait Subscription[EventType, DoneBy] {
-    def restartFromFirstEvent(lastEventToHandle: EventStoreVersion): UIO[Unit]
+    def restartFromFirstEvent(lastEventToHandle: LastEventToHandle = LastEventToHandle.LastEvent): IO[Unexpected, Unit]
     def stream: ZStream[Scope, Unexpected, EventStoreEvent[EventType, DoneBy]]
   }
 
   object Subscription {
     def fromSwitchableStream[EventType, DoneBy](
-        switchableStream: SwitchableZStream[Any, Unexpected, RepositoryEvent[EventType, DoneBy]]
+        switchableStream: SwitchableZStream[Any, Unexpected, RepositoryEvent[EventType, DoneBy]],
+        maybeLastVersion: IO[Unexpected, Option[EventStoreVersion]]
     ): Subscription[EventType, DoneBy] =
       new Subscription[EventType, DoneBy] {
-        override def restartFromFirstEvent(lastEventToHandle: EventStoreVersion): UIO[Unit] =
-          switchableStream.switchToPastEvents(until = _.eventStoreVersion == lastEventToHandle)
+
+        override def restartFromFirstEvent(
+            lastEventToHandle: LastEventToHandle = LastEventToHandle.LastEvent
+        ): IO[Unexpected, Unit] =
+          lastEventToHandle match {
+            case LastEventToHandle.Version(version) =>
+              switchableStream.switchToPastEvents(_.eventStoreVersion == version)
+            case LastEventToHandle.LastEvent =>
+              maybeLastVersion.some
+                .flatMap(version => switchableStream.switchToPastEvents(_.eventStoreVersion == version))
+                .unsome
+                .someOrElseZIO(switchableStream.switchToEmptyPastEvents)
+          }
 
         override def stream: ZStream[Scope, Unexpected, EventStoreEvent[EventType, DoneBy]] =
           switchableStream.stream.collect {
             case Message.SwitchedToPastEvents => Reset[EventType, DoneBy]()
             case Message.Event(a)             => a
           }
+
       }
 
   }
@@ -79,7 +97,8 @@ object EventRepository {
 
 trait EventRepository[Decoder[_], Encoder[_]] {
 
-  def getAllEvents[A: Decoder: Tag, DoneBy: Decoder: Tag]: Stream[Unexpected, RepositoryEvent[A, DoneBy]]
+  def getAllEvents[A: Decoder: Tag, DoneBy: Decoder: Tag]
+      : ZIO[Scope, Nothing, Stream[Unexpected, RepositoryEvent[A, DoneBy]]]
 
   def listEventStreamWithName(
       aggregateName: AggregateName,

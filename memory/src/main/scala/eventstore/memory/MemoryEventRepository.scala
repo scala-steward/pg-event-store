@@ -49,13 +49,11 @@ class MemoryEventRepository[UnusedDecoder[_], UnusedEncoder[_]](
   } yield events
 
   override def getAllEvents[EventType: UnusedDecoder: Tag, DoneBy: UnusedDecoder: Tag]
-      : ZStream[Any, Unexpected, RepositoryEvent[EventType, DoneBy]] =
-    ZStream.unwrap {
-      for { events <- storageRef.get.map(_.events).commit } yield {
-        ZStream
-          .fromIterable(events)
-          .map(_.asInstanceOf[RepositoryEvent[EventType, DoneBy]])
-      }
+      : ZIO[Scope, Nothing, Stream[Unexpected, RepositoryEvent[EventType, DoneBy]]] =
+    for { events <- storageRef.get.map(_.events).commit } yield {
+      ZStream
+        .fromIterable(events)
+        .map(_.asInstanceOf[RepositoryEvent[EventType, DoneBy]])
     }
 
   override def listEventStreamWithName(
@@ -74,7 +72,7 @@ class MemoryEventRepository[UnusedDecoder[_], UnusedEncoder[_]](
 
   override def listen[EventType: UnusedDecoder: Tag, DoneBy: UnusedDecoder: Tag]
       : ZIO[Scope, Unexpected, Subscription[EventType, DoneBy]] = {
-    val fromDb = ZIO.succeed(getAllEvents[EventType, DoneBy])
+    val fromDb = getAllEvents[EventType, DoneBy]
 
     val typeTag = implicitly[Tag[EventType]]
     val doneTag = implicitly[Tag[DoneBy]]
@@ -92,8 +90,11 @@ class MemoryEventRepository[UnusedDecoder[_], UnusedEncoder[_]](
 
       switchableStream <- SwitchableZStream.from(live, fromDb)
 
-    } yield Subscription.fromSwitchableStream(switchableStream)
+    } yield Subscription.fromSwitchableStream(switchableStream, getLastEventVersion)
   }
+
+  private def getLastEventVersion: IO[Unexpected, Option[EventStoreVersion]] =
+    storageRef.get.map(_.events.lastOption.map(_.eventStoreVersion)).commit
 
 }
 
