@@ -24,13 +24,13 @@ import EventRepository.{Direction, EventsOps, SaveEventError, Subscription}
 
 class MemoryEventRepository[UnusedDecoder[_], UnusedEncoder[_]](
     storageRef: TRef[Storage],
-    hub: Hub[RepositoryEvent[Any, Any]]
+    hub: Hub[RepositoryEvent[Any]]
 ) extends EventRepository[UnusedDecoder, UnusedEncoder] {
 
-  override def getEventStream[A: UnusedDecoder: Tag, DoneBy: UnusedDecoder: Tag](
+  override def getEventStream[A: UnusedDecoder: Tag](
       eventStreamId: EventStreamId,
       direction: Direction = Direction.Forward
-  ): ZIO[Scope, Unexpected, Stream[Unexpected, RepositoryEvent[A, DoneBy]]] =
+  ): ZIO[Scope, Unexpected, Stream[Unexpected, RepositoryEvent[A]]] =
     storageRef.get
       .map(_.getEvents(eventStreamId))
       .commit
@@ -42,10 +42,10 @@ class MemoryEventRepository[UnusedDecoder[_], UnusedEncoder[_]](
       )
       .map(x => ZStream.fromIterable(x))
 
-  override def saveEvents[A: UnusedDecoder: UnusedEncoder: Tag, DoneBy: UnusedDecoder: UnusedEncoder: Tag](
+  override def saveEvents[A: UnusedDecoder: UnusedEncoder: Tag](
       eventStreamId: EventStreamId,
-      newEvents: Seq[RepositoryWriteEvent[A, DoneBy]]
-  ): IO[SaveEventError, Seq[RepositoryEvent[A, DoneBy]]] = for {
+      newEvents: Seq[RepositoryWriteEvent[A]]
+  ): IO[SaveEventError, Seq[RepositoryEvent[A]]] = for {
 
     events <- (for {
       _ <- ZSTM.fromEither(newEvents.checkVersionsAreContiguousIncrements)
@@ -60,12 +60,12 @@ class MemoryEventRepository[UnusedDecoder[_], UnusedEncoder[_]](
     _ <- hub.publishAll(events)
   } yield events
 
-  override def getAllEvents[EventType: UnusedDecoder: Tag, DoneBy: UnusedDecoder: Tag]
-      : ZIO[Scope, Nothing, Stream[Unexpected, RepositoryEvent[EventType, DoneBy]]] =
+  override def getAllEvents[EventType: UnusedDecoder: Tag]
+      : ZIO[Scope, Nothing, Stream[Unexpected, RepositoryEvent[EventType]]] =
     for { events <- storageRef.get.map(_.events).commit } yield {
       ZStream
         .fromIterable(events)
-        .map(_.asInstanceOf[RepositoryEvent[EventType, DoneBy]])
+        .map(_.asInstanceOf[RepositoryEvent[EventType]])
     }
 
   override def listEventStreamWithName(
@@ -82,23 +82,22 @@ class MemoryEventRepository[UnusedDecoder[_], UnusedEncoder[_]](
       }
     )
 
-  override def listen[EventType: UnusedDecoder: Tag, DoneBy: UnusedDecoder: Tag]
-      : ZIO[Scope, Unexpected, Subscription[EventType, DoneBy]] = listenImpl(live = fromHub[EventType, DoneBy])
+  override def listen[EventType: UnusedDecoder: Tag]: ZIO[Scope, Unexpected, Subscription[EventType]] = listenImpl(live = fromHub[EventType])
 
-  override def listenFromVersion[EventType: UnusedDecoder: Tag, DoneBy: UnusedDecoder: Tag](
+  override def listenFromVersion[EventType: UnusedDecoder: Tag](
       fromExclusive: EventStoreVersion
-  ): ZIO[Scope, Unexpected, Subscription[EventType, DoneBy]] = {
+  ): ZIO[Scope, Unexpected, Subscription[EventType]] = {
     val live = for {
-      fromDb <- getAllEvents[EventType, DoneBy]
-      fromHub <- fromHub[EventType, DoneBy]
+      fromDb <- getAllEvents[EventType]
+      fromHub <- fromHub[EventType]
     } yield fromDb.concat(fromHub).dropWhile(_.eventStoreVersion <= fromExclusive)
     listenImpl(live = live)
   }
 
-  private def listenImpl[EventType: UnusedDecoder: Tag, DoneBy: UnusedDecoder: Tag](
-      live: ZIO[Scope, Nothing, ZStream[Any, Unexpected, RepositoryEvent[EventType, DoneBy]]]
-  ): ZIO[Scope, Unexpected, Subscription[EventType, DoneBy]] = {
-    val fromDb = getAllEvents[EventType, DoneBy]
+  private def listenImpl[EventType: UnusedDecoder: Tag](
+      live: ZIO[Scope, Nothing, ZStream[Any, Unexpected, RepositoryEvent[EventType]]]
+  ): ZIO[Scope, Unexpected, Subscription[EventType]] = {
+    val fromDb = getAllEvents[EventType]
 
     for {
       live <- live
@@ -106,18 +105,18 @@ class MemoryEventRepository[UnusedDecoder[_], UnusedEncoder[_]](
     } yield Subscription.fromSwitchableStream(switchableStream, getLastEventVersion)
   }
 
-  private def fromHub[EventType: UnusedDecoder: Tag, DoneBy: UnusedDecoder: Tag]
-      : ZIO[Scope, Nothing, ZStream[Any, Nothing, RepositoryEvent[EventType, DoneBy]]] = {
+  private def fromHub[EventType: UnusedDecoder: Tag]
+      : ZIO[Scope, Nothing, ZStream[Any, Nothing, RepositoryEvent[EventType]]] = {
     val typeTag = implicitly[Tag[EventType]]
-    val doneTag = implicitly[Tag[DoneBy]]
-    hub.subscribe.map { subscription =>
-      ZStream
-        .fromQueue(subscription)
-        .collect {
-          case event: RepositoryEvent[Any, Any] if event.eventTag <:< typeTag.tag && event.doneByTag <:< doneTag.tag =>
-            event.asInstanceOf[RepositoryEvent[EventType, DoneBy]]
-        }
-    }
+
+      hub.subscribe.map { subscription =>
+        ZStream
+          .fromQueue(subscription)
+          .collect {
+            case event: RepositoryEvent[Any] if event.eventTag <:< typeTag.tag =>
+              event.asInstanceOf[RepositoryEvent[EventType]]
+          }
+      }
 
   }
 
@@ -131,15 +130,15 @@ object MemoryEventRepository {
   type Id[A] = Unit
 
   case class Storage(
-      events: List[RepositoryEvent[?, ?]],
-      byAggregate: Map[EventStreamId, List[RepositoryEvent[?, ?]]],
+      events: List[RepositoryEvent[?]],
+      byAggregate: Map[EventStreamId, List[RepositoryEvent[?]]],
       aggregates: ListSet[EventStreamId]
   ) {
 
-    def appendEvents[A: Tag, DoneBy: Tag](
+    def appendEvents[A: Tag](
         eventStreamId: EventStreamId,
-        newEvents: Seq[RepositoryWriteEvent[A, DoneBy]]
-    ): ZSTM[Any, SaveEventError, (Storage, Seq[RepositoryEvent[A, DoneBy]])] = {
+        newEvents: Seq[RepositoryWriteEvent[A]]
+    ): ZSTM[Any, SaveEventError, (Storage, Seq[RepositoryEvent[A]])] = {
       val currentEvents = getEvents(eventStreamId)
       for {
         _ <- checkExpectedVersion(currentEvents, newEvents)
@@ -152,8 +151,8 @@ object MemoryEventRepository {
       ) -> newRepositoryEvents
     }
 
-    implicit class EventsOps[A: Tag, DoneBy: Tag](self: Seq[RepositoryWriteEvent[A, DoneBy]]) {
-      def toRepositoryEvents(eventStoreVersion: EventStoreVersion): Seq[RepositoryEvent[A, DoneBy]] =
+    implicit class EventsOps[A: Tag](self: Seq[RepositoryWriteEvent[A]]) {
+      def toRepositoryEvents(eventStoreVersion: EventStoreVersion): Seq[RepositoryEvent[A]] =
         self
           .zip(LazyList.iterate(eventStoreVersion.next)(v => v.next))
           .map { case (evt, version) =>
@@ -164,15 +163,14 @@ object MemoryEventRepository {
               evt.aggregateVersion,
               evt.sentDate,
               version,
-              evt.doneBy,
               evt.event
             )
           }
     }
 
     private def checkExpectedVersion(
-        currentEvents: Seq[RepositoryEvent[?, ?]],
-        newEvents: Seq[RepositoryWriteEvent[?, ?]]
+        currentEvents: Seq[RepositoryEvent[?]],
+        newEvents: Seq[RepositoryWriteEvent[?]]
     ) = {
       newEvents.headOption
         .map { headEvent =>
@@ -189,10 +187,10 @@ object MemoryEventRepository {
         .getOrElse(ZSTM.unit)
     }
 
-    def getEvents[A, DoneBy](eventStreamId: EventStreamId): List[RepositoryEvent[A, DoneBy]] =
+    def getEvents[A](eventStreamId: EventStreamId): List[RepositoryEvent[A]] =
       byAggregate
         .getOrElse(key = eventStreamId, default = List.empty)
-        .asInstanceOf[List[RepositoryEvent[A, DoneBy]]]
+        .asInstanceOf[List[RepositoryEvent[A]]]
 
   }
 
@@ -200,7 +198,7 @@ object MemoryEventRepository {
     ZLayer {
       for {
         map <- TRef.makeCommit(Storage(List.empty, Map.empty, ListSet.empty))
-        hub <- Hub.unbounded[RepositoryEvent[Any, Any]]
+        hub <- Hub.unbounded[RepositoryEvent[Any]]
       } yield new MemoryEventRepository(map, hub)
     }
   }

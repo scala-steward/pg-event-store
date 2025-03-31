@@ -5,7 +5,6 @@ create table events
     aggregateid       uuid not null,
     aggregatename     text not null,
     sentdate          text not null,
-    doneBy            jsonb not null,
     aggregateVersion  int not null,
     payload           jsonb not null
 );
