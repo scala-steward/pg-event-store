@@ -82,7 +82,8 @@ class MemoryEventRepository[UnusedDecoder[_], UnusedEncoder[_]](
       }
     )
 
-  override def listen[EventType: UnusedDecoder: Tag]: ZIO[Scope, Unexpected, Subscription[EventType]] = listenImpl(live = fromHub[EventType])
+  override def listen[EventType: UnusedDecoder: Tag]: ZIO[Scope, Unexpected, Subscription[EventType]] =
+    listenImpl(live = fromHub[EventType])
 
   override def listenFromVersion[EventType: UnusedDecoder: Tag](
       fromExclusive: EventStoreVersion
@@ -109,14 +110,14 @@ class MemoryEventRepository[UnusedDecoder[_], UnusedEncoder[_]](
       : ZIO[Scope, Nothing, ZStream[Any, Nothing, RepositoryEvent[EventType]]] = {
     val typeTag = implicitly[Tag[EventType]]
 
-      hub.subscribe.map { subscription =>
-        ZStream
-          .fromQueue(subscription)
-          .collect {
-            case event: RepositoryEvent[Any] if event.eventTag <:< typeTag.tag =>
-              event.asInstanceOf[RepositoryEvent[EventType]]
-          }
-      }
+    hub.subscribe.map { subscription =>
+      ZStream
+        .fromQueue(subscription)
+        .collect {
+          case event: RepositoryEvent[Any] if event.eventTag <:< typeTag.tag =>
+            event.asInstanceOf[RepositoryEvent[EventType]]
+        }
+    }
 
   }
 

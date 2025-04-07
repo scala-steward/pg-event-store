@@ -6,7 +6,7 @@ create table events
     aggregatename     text not null,
     sentdate          text not null,
     aggregateVersion  int not null,
-    payload           jsonb not null
+    payload           text not null
 );
 
 alter table events add primary key (eventStoreVersion);

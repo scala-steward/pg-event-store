@@ -59,7 +59,7 @@ object EventRepository {
           switchableStream.stream.collect {
             case Message.SwitchedToPastEvents => Reset[EventType]()
             case Message.Event(a)             => a
-            case Message.SwitchedToLive       => SwitchedToLive[EventType, DoneBy]()
+            case Message.SwitchedToLive       => SwitchedToLive[EventType]()
           }
 
       }
@@ -98,8 +98,7 @@ object EventRepository {
 
 trait EventRepository[Decoder[_], Encoder[_]] {
 
-  def getAllEvents[A: Decoder: Tag]
-      : ZIO[Scope, Nothing, Stream[Unexpected, RepositoryEvent[A]]]
+  def getAllEvents[A: Decoder: Tag]: ZIO[Scope, Nothing, Stream[Unexpected, RepositoryEvent[A]]]
 
   def listEventStreamWithName(
       aggregateName: AggregateName,

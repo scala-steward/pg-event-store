@@ -21,12 +21,12 @@ private class PostgresZioJsonEventRepository(
 ) extends EventRepository[JsonDecoder, JsonEncoder] {
 
   def getJson[A: JsonDecoder: Tag]: Get[A] =
-    Get[String].temap(input =>
+    Get[String].temap(input => {
       implicitly[JsonDecoder[A]]
         .decodeJson(input)
         .left
         .map(msg => s"trying to decode $input as ${implicitly[Tag[A]].tag}, error $msg")
-    )
+    })
 
   def putJson[A](implicit encoder: JsonEncoder[A]): Put[A] =
     Put[String].contramap(obj => encoder.encodeJson(obj, indent = None).toString)
@@ -65,8 +65,7 @@ private class PostgresZioJsonEventRepository(
     postgresEventRepositoryLive.listenFromVersion[EventType](fromExclusive)
   }
 
-  override def getAllEvents[A: JsonDecoder: Tag]
-      : ZIO[Scope, Nothing, Stream[Unexpected, RepositoryEvent[A]]] = {
+  override def getAllEvents[A: JsonDecoder: Tag]: ZIO[Scope, Nothing, Stream[Unexpected, RepositoryEvent[A]]] = {
     implicit val getA: Get[A] = getJson[A]
     postgresEventRepositoryLive.getAllEvents[A]
   }

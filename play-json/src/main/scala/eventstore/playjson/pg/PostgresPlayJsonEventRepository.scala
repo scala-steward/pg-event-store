@@ -68,8 +68,7 @@ private class PostgresPlayJsonEventRepository(
     postgresEventRepositoryLive.listenFromVersion[EventType](fromExclusive)
   }
 
-  override def getAllEvents[A: Reads: Tag]
-      : ZIO[Scope, Nothing, Stream[Unexpected, RepositoryEvent[A]]] = {
+  override def getAllEvents[A: Reads: Tag]: ZIO[Scope, Nothing, Stream[Unexpected, RepositoryEvent[A]]] = {
     implicit val getEventType: Get[A] = getJson[A]
     postgresEventRepositoryLive.getAllEvents[A]
   }

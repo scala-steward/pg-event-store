@@ -80,8 +80,7 @@ class PostgresEventRepositoryLive(
       switchableStream <- SwitchableZStream.from(live, fromDb)
     } yield Subscription.fromSwitchableStream(switchableStream, getLastEventVersion)
 
-  private def fromHub[EventType: Tag]
-      : ZIO[Scope, Nothing, ZStream[Any, Nothing, RepositoryEvent[EventType]]] =
+  private def fromHub[EventType: Tag]: ZIO[Scope, Nothing, ZStream[Any, Nothing, RepositoryEvent[EventType]]] =
     for {
       subscription <- hub.subscribe
     } yield {
@@ -107,8 +106,7 @@ class PostgresEventRepositoryLive(
     } yield Subscription.fromSwitchableStream(switchableStream, getLastEventVersion)
   }
 
-  override def getAllEvents[A: Get: Tag]
-      : ZIO[Scope, Nothing, Stream[Unexpected, RepositoryEvent[A]]] =
+  override def getAllEvents[A: Get: Tag]: ZIO[Scope, Nothing, Stream[Unexpected, RepositoryEvent[A]]] =
     getAllEventImpl[A](Req.listAll)
 
   private def getAllEventImpl[A: Get: Tag](query: Fragment) =

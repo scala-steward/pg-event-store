@@ -105,6 +105,7 @@ lazy val `zio-json` = (project in file("zio-json"))
 
 lazy val `play-json` = (project in file("play-json"))
   .settings(commonSettings)
+  .settings(crossScalaVersions := Seq(scala2Version))
   .settings(
     name := "pg-event-store-play-json",
     libraryDependencies ++= zio ++ `zio-test`.asTest ++ `play-json-libs`
