@@ -23,8 +23,8 @@ private[eventstore] class SwitchableZStream[-R, +E, +A] private (
     stateRef: Ref[StreamState[E, A]],
     commands: Queue[Command[A]]
 ) {
-  def stream: ZStream[R & Scope, E, Message[A]] =
-    ZStream.unwrap {
+  def stream: ZStream[R, E, Message[A]] =
+    ZStream.unwrapScoped[R] {
       for {
         liveQueue <- liveStream.map(Message.Event(_)).toQueue()
 

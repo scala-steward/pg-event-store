@@ -32,7 +32,7 @@ object EventRepository {
 
   trait Subscription[EventType, DoneBy] {
     def restartFromFirstEvent(lastEventToHandle: LastEventToHandle = LastEventToHandle.LastEvent): IO[Unexpected, Unit]
-    def stream: ZStream[Scope, Unexpected, EventStoreEvent[EventType, DoneBy]]
+    def stream: ZStream[Any, Unexpected, EventStoreEvent[EventType, DoneBy]]
   }
 
   object Subscription {
@@ -55,7 +55,7 @@ object EventRepository {
                 .someOrElseZIO(switchableStream.switchToEmptyPastEvents)
           }
 
-        override def stream: ZStream[Scope, Unexpected, EventStoreEvent[EventType, DoneBy]] =
+        override def stream: ZStream[Any, Unexpected, EventStoreEvent[EventType, DoneBy]] =
           switchableStream.stream.collect {
             case Message.SwitchedToPastEvents => Reset[EventType, DoneBy]()
             case Message.Event(a)             => a
