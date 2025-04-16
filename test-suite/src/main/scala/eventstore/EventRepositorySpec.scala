@@ -607,7 +607,7 @@ object EventRepositorySpec {
         }
       ),
       suite(
-        "listen Spec - Pouvoir switcher entre le flux des évènements en cours et un getAll - Pour le rebuild des vues"
+        "listen Spec - switch from live stream and getAll - For projections rebuild"
       )(
         test(
           "listen should publish reset event before feeding events from the past"
