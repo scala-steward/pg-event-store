@@ -435,7 +435,8 @@ object EventRepositorySpec {
                       ).runCollect
                       _ <- ZIO.foreachDiscard(events)(save)
                       result <- repository
-                        .getAllEvents[Event, User].flatMap(_.runCollect)
+                        .getAllEvents[Event, User]
+                        .flatMap(_.runCollect)
 
                     } yield assert(result.asRepositoryWriteEvents)(
                       equalTo(events)
@@ -459,7 +460,8 @@ object EventRepositorySpec {
                         .take(events1.length.toLong + events2.length)
                         .runCollect
                       result <- repository
-                        .getAllEvents[Event, User].flatMap(_.runCollect)
+                        .getAllEvents[Event, User]
+                        .flatMap(_.runCollect)
 
                     } yield assert(result)(equalTo(fromListen))
                   }
@@ -505,7 +507,8 @@ object EventRepositorySpec {
             eventsGen(eventGen, Gen.const(AggregateName("Foo")), size1Gen = atLeastOne),
             eventsGen(
               eventGen,
-              aggregateNameGen.filter(_ != AggregateName("Foo")), size1Gen = atLeastOne
+              aggregateNameGen.filter(_ != AggregateName("Foo")),
+              size1Gen = atLeastOne
             )
           ) {
             case (
@@ -529,7 +532,9 @@ object EventRepositorySpec {
           check(
             Gen
               .setOfN(2)(aggregateNameGen)
-              .flatMap(name => Gen.listOfBounded(1, 20)(eventsGen(eventGen, Gen.elements(name.toList*), size1Gen = atLeastOne)))
+              .flatMap(name =>
+                Gen.listOfBounded(1, 20)(eventsGen(eventGen, Gen.elements(name.toList*), size1Gen = atLeastOne))
+              )
           ) { events =>
             (for {
               repository <- ZIO.service[EventRepository[Decoder, Encoder]]
@@ -551,7 +556,9 @@ object EventRepositorySpec {
           check(
             Gen
               .setOfN(2)(aggregateNameGen)
-              .flatMap(name => Gen.listOfBounded(1, 20)(eventsGen(eventGen, Gen.elements(name.toList*), size1Gen = atLeastOne)))
+              .flatMap(name =>
+                Gen.listOfBounded(1, 20)(eventsGen(eventGen, Gen.elements(name.toList*), size1Gen = atLeastOne))
+              )
           ) { events =>
             (for {
               repository <- ZIO.service[EventRepository[Decoder, Encoder]]
@@ -709,19 +716,21 @@ object EventRepositorySpec {
                 for {
                   repository <- ZIO.service[EventRepository[Decoder, Encoder]]
                   subscription <- repository.listen[Event1, User]
-                  resultFiber <- Live.live(subscription.stream
-                    .tap {
-                      case _: Reset[?, ?] => repository.saveEvents(firstStreamId, events1)
-                      case _ => ZIO.unit
-                    }
-                    .map {
-                      case e: RepositoryEvent[Event1, User] => e.asString
-                      case _: Reset[?, ?] => "reset"
-                    }
-                    .take(1 + events1.length)
-                    .timeout(2.seconds)
-                    .runCollect
-                    .fork)
+                  resultFiber <- Live.live(
+                    subscription.stream
+                      .tap {
+                        case _: Reset[?, ?] => repository.saveEvents(firstStreamId, events1)
+                        case _              => ZIO.unit
+                      }
+                      .map {
+                        case e: RepositoryEvent[Event1, User] => e.asString
+                        case _: Reset[?, ?]                   => "reset"
+                      }
+                      .take(1 + events1.length)
+                      .timeout(2.seconds)
+                      .runCollect
+                      .fork
+                  )
                   _ <- subscription.restartFromFirstEvent(LastEvent)
                   result <- resultFiber.join
                 } yield assert(result.toList)(hasSameElements(Seq("reset") ++ events1.asStrings))
@@ -737,15 +746,17 @@ object EventRepositorySpec {
               for {
                 repository <- ZIO.service[EventRepository[Decoder, Encoder]]
                 subscription <- repository.listen[Event1, User]
-                resultFiber <- Live.live(subscription.stream
-                  .map {
-                    case e: RepositoryEvent[Event1, User] => e.asString
-                    case _: Reset[?, ?]                   => "reset"
-                  }
-                  .take(1)
-                  .timeout(1.seconds)
-                  .runCollect
-                  .fork)
+                resultFiber <- Live.live(
+                  subscription.stream
+                    .map {
+                      case e: RepositoryEvent[Event1, User] => e.asString
+                      case _: Reset[?, ?]                   => "reset"
+                    }
+                    .take(1)
+                    .timeout(1.seconds)
+                    .runCollect
+                    .fork
+                )
                 _ <- subscription.restartFromFirstEvent(LastEvent)
                 result <- resultFiber.join
               } yield assert(result.toList)(hasSameElements(Seq("reset")))
