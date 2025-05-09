@@ -4,7 +4,7 @@ import Libraries.*
 import xerial.sbt.Sonatype.sonatypeCentralHost
 
 val scala2Version = "2.13.16"
-val scala3Version = "3.3.5"
+val scala3Version = "3.3.6"
 
 ThisBuild / scalaVersion := scala2Version
 ThisBuild / homepage := Some(url("https://github.com/PerformanceIMMO/pg-event-store"))
