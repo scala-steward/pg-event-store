@@ -125,20 +125,46 @@ object EventRepositorySpec {
         List[RepositoryWriteEvent[EventType, User]],
         List[RepositoryWriteEvent[EventType, User]]
     )
-  ] = {
-    for {
-      streamId <- streamIdGen(nameGen)
-      size1 <- size1Gen
-      size2 <- size2Gen
-      events <- Gen.unfoldGenN(size1 + size2)(AggregateVersion.initial)(version => {
-        eventGen.mapZIO(event => {
-          event
-            .asRepositoryWriteEvent(version = version, streamId = streamId)
-            .map(event => version.next -> event)
-        })
+  ] = for {
+    streamId <- streamIdGen(nameGen)
+    size1 <- size1Gen
+    size2 <- size2Gen
+    events <- genEventSeq(size1 + size2, streamId, eventGen)
+    (events1, events2) = events.splitAt(size1)
+  } yield (streamId, events1, events2)
+
+  def eventsGen3[EventType: Tag](
+      eventGen: Gen[Any, EventType],
+      nameGen: Gen[Any, AggregateName] = aggregateNameGen,
+      size1Gen: Gen[Any, Int] = Gen.int(0, 20),
+      size2Gen: Gen[Any, Int] = Gen.int(0, 20),
+      size3Gen: Gen[Any, Int] = Gen.int(0, 20)
+  ): Gen[
+    Any,
+    (
+        EventStreamId,
+        List[RepositoryWriteEvent[EventType, User]],
+        List[RepositoryWriteEvent[EventType, User]],
+        List[RepositoryWriteEvent[EventType, User]]
+    )
+  ] = for {
+    streamId <- streamIdGen(nameGen)
+    size1 <- size1Gen
+    size2 <- size2Gen
+    size3 <- size3Gen
+    events <- genEventSeq(size1 + size2 + size3, streamId, eventGen)
+    (events1, remainder) = events.splitAt(size1)
+    (events2, events3) = remainder.splitAt(size2)
+  } yield (streamId, events1, events2, events3)
+
+  private def genEventSeq[EventType: Tag](size: Int, streamId: EventStreamId, eventGen: Gen[Any, EventType]) = {
+    Gen.unfoldGenN(size)(AggregateVersion.initial)(version => {
+      eventGen.mapZIO(event => {
+        event
+          .asRepositoryWriteEvent(version = version, streamId = streamId)
+          .map(event => version.next -> event)
       })
-      (events1, events2) = events.splitAt(size1)
-    } yield (streamId, events1, events2)
+    })
   }
 
   val atLeastOne = Gen.int(1, 20)
@@ -602,6 +628,66 @@ object EventRepositorySpec {
                   )
                 }
               }
+              .provideSome[R](repository)
+          }
+        }
+      ),
+      suite("listenFromVersion Spec - for projections keeping track of events offsets")(
+        test("should stream past events from offset") {
+          check(eventsGen(eventGen, size1Gen = atLeastOne)) { case (firstStreamId, events1, events2) =>
+            val nbEvents2 = events2.length.toLong
+            ZIO
+              .scoped(
+                for {
+                  repository <- ZIO.service[EventRepository[Decoder, Encoder]]
+                  fromVersion <- repository.saveEvents(firstStreamId, events1).map(_.last.eventStoreVersion)
+                  _ <- repository.saveEvents(firstStreamId, events2)
+                  subscription <- repository.listenFromVersion[Event1, User](fromExclusive = fromVersion)
+                  result <- subscription.stream
+                    .map {
+                      case e: RepositoryEvent[Event1, User] => e.asString
+                      case _: Reset[?, ?]                   => "reset"
+                    }
+                    .take(nbEvents2)
+                    .timeout(1.seconds)
+                    .runCollect
+                } yield assert(result.toList)(equalTo(events2.asStrings))
+              )
+              .provideSome[R](repository)
+          }
+        },
+        test("should switch to first events") {
+          check(eventsGen3(eventGen, size2Gen = atLeastOne)) { case (firstStreamId, events1, events2, events3) =>
+            val nbEvents1 = events1.length.toLong
+            val nbEvents2 = events2.length.toLong
+            val nbEvents3 = events3.length.toLong
+            ZIO
+              .scoped(
+                for {
+                  repository <- ZIO.service[EventRepository[Decoder, Encoder]]
+                  fromVersion <- repository.saveEvents(firstStreamId, events1).map(_.last.eventStoreVersion)
+                  _ <- repository.saveEvents(firstStreamId, events2)
+                  subscription <- repository.listenFromVersion[Event1, User](fromExclusive = fromVersion)
+                  _ <- repository.saveEvents(firstStreamId, events3)
+                  lastKnownVersionForEvents2 <- repository
+                    .getAllEvents[Event1, User]
+                    .flatMap(_.runLast)
+                    .map(_.map(_.eventStoreVersion).getOrElse(EventStoreVersion.initial))
+
+                  result <- subscription.stream
+                    .collect { case e: RepositoryEvent[Event1, User] => e }
+                    .take(nbEvents1 + nbEvents2 * 2 + nbEvents3 * 2)
+                    .tap(event =>
+                      ZIO.when(event.eventStoreVersion == lastKnownVersionForEvents2)(
+                        subscription.restartFromFirstEvent(Version(lastKnownVersionForEvents2))
+                      )
+                    )
+                    .timeout(1.seconds)
+                    .runCollect
+                } yield assert(result.toList.asRepositoryWriteEvents)(
+                  equalTo(events2 ++ events3 ++ events1 ++ events2 ++ events3)
+                )
+              )
               .provideSome[R](repository)
           }
         }

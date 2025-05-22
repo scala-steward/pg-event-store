@@ -16,6 +16,7 @@ import zio.stream.Stream
 import zio.stream.ZStream
 
 import scala.collection.immutable.ListSet
+import scala.math.Ordered.orderingToOrdered
 
 import EventRepository.Error.Unexpected
 import EventRepository.Error.VersionConflict
@@ -71,26 +72,42 @@ class MemoryEventRepository[UnusedDecoder[_], UnusedEncoder[_]](
     )
 
   override def listen[EventType: UnusedDecoder: Tag, DoneBy: UnusedDecoder: Tag]
-      : ZIO[Scope, Unexpected, Subscription[EventType, DoneBy]] = {
+      : ZIO[Scope, Unexpected, Subscription[EventType, DoneBy]] = listenImpl(live = fromHub[EventType, DoneBy])
+
+  override def listenFromVersion[EventType: UnusedDecoder: Tag, DoneBy: UnusedDecoder: Tag](
+      fromExclusive: EventStoreVersion
+  ): ZIO[Scope, Unexpected, Subscription[EventType, DoneBy]] = {
+    val live = for {
+      fromDb <- getAllEvents[EventType, DoneBy]
+      fromHub <- fromHub[EventType, DoneBy]
+    } yield fromDb.concat(fromHub).dropWhile(_.eventStoreVersion <= fromExclusive)
+    listenImpl(live = live)
+  }
+
+  private def listenImpl[EventType: UnusedDecoder: Tag, DoneBy: UnusedDecoder: Tag](
+      live: ZIO[Scope, Nothing, ZStream[Any, Unexpected, RepositoryEvent[EventType, DoneBy]]]
+  ): ZIO[Scope, Unexpected, Subscription[EventType, DoneBy]] = {
     val fromDb = getAllEvents[EventType, DoneBy]
 
+    for {
+      live <- live
+      switchableStream <- SwitchableZStream.from(live, fromDb)
+    } yield Subscription.fromSwitchableStream(switchableStream, getLastEventVersion)
+  }
+
+  private def fromHub[EventType: UnusedDecoder: Tag, DoneBy: UnusedDecoder: Tag]
+      : ZIO[Scope, Nothing, ZStream[Any, Nothing, RepositoryEvent[EventType, DoneBy]]] = {
     val typeTag = implicitly[Tag[EventType]]
     val doneTag = implicitly[Tag[DoneBy]]
+    hub.subscribe.map { subscription =>
+      ZStream
+        .fromQueue(subscription)
+        .collect {
+          case event: RepositoryEvent[Any, Any] if event.eventTag <:< typeTag.tag && event.doneByTag <:< doneTag.tag =>
+            event.asInstanceOf[RepositoryEvent[EventType, DoneBy]]
+        }
+    }
 
-    for {
-      live <- hub.subscribe.map { subscription =>
-        ZStream
-          .fromQueue(subscription)
-          .collect {
-            case event: RepositoryEvent[Any, Any]
-                if event.eventTag <:< typeTag.tag && event.doneByTag <:< doneTag.tag =>
-              event.asInstanceOf[RepositoryEvent[EventType, DoneBy]]
-          }
-      }
-
-      switchableStream <- SwitchableZStream.from(live, fromDb)
-
-    } yield Subscription.fromSwitchableStream(switchableStream, getLastEventVersion)
   }
 
   private def getLastEventVersion: IO[Unexpected, Option[EventStoreVersion]] =

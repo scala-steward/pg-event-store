@@ -5,6 +5,7 @@ import eventstore.EventRepository.Error.Unexpected
 import eventstore.RepositoryEvent
 import eventstore.RepositoryWriteEvent
 import eventstore.types.AggregateName
+import eventstore.types.EventStoreVersion
 import eventstore.types.EventStreamId
 import play.api.libs.json.Json
 import play.api.libs.json.Reads
@@ -14,7 +15,7 @@ import zio._
 import zio.stream.Stream
 import zio.stream.ZStream
 
-import EventRepository.{Direction, Error}
+import EventRepository.{Direction, Error, Subscription}
 
 private class PostgresPlayJsonEventRepository(
     postgresEventRepositoryLive: EventRepository[Get, Put]
@@ -61,6 +62,14 @@ private class PostgresPlayJsonEventRepository(
     implicit val getDoneBy: Get[DoneBy] = getJson[DoneBy]
     postgresEventRepositoryLive.listen[EventType, DoneBy]
 
+  }
+
+  override def listenFromVersion[EventType: Reads: Tag, DoneBy: Reads: Tag](
+      fromExclusive: EventStoreVersion
+  ): ZIO[Scope, Unexpected, Subscription[EventType, DoneBy]] = {
+    implicit val getEventType: Get[EventType] = getJson[EventType]
+    implicit val getDoneBy: Get[DoneBy] = getJson[DoneBy]
+    postgresEventRepositoryLive.listenFromVersion[EventType, DoneBy](fromExclusive)
   }
 
   override def getAllEvents[A: Reads: Tag, DoneBy: Reads: Tag]

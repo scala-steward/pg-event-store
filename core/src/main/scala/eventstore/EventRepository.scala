@@ -116,4 +116,8 @@ trait EventRepository[Decoder[_], Encoder[_]] {
 
   def listen[EventType: Decoder: Tag, DoneBy: Decoder: Tag]: ZIO[Scope, Unexpected, Subscription[EventType, DoneBy]]
 
+  def listenFromVersion[EventType: Decoder: Tag, DoneBy: Decoder: Tag](
+      fromExclusive: EventStoreVersion
+  ): ZIO[Scope, Unexpected, Subscription[EventType, DoneBy]]
+
 }

@@ -67,30 +67,49 @@ class PostgresEventRepositoryLive(
     } yield events
   }
 
-  override def listen[EventType: Get: Tag, DoneBy: Get: Tag]
-      : ZIO[Scope, Unexpected, Subscription[EventType, DoneBy]] = {
-    val fromDb = getAllEvents[EventType, DoneBy]
-    val eventTypeTag = implicitly[Tag[EventType]].tag
-    val doneByTag = implicitly[Tag[DoneBy]].tag
+  override def listen[EventType: Get: Tag, DoneBy: Get: Tag]: ZIO[Scope, Unexpected, Subscription[EventType, DoneBy]] =
+    for {
+      live <- fromHub[EventType, DoneBy]
+      fromDb = getAllEvents[EventType, DoneBy]
+      switchableStream <- SwitchableZStream.from(live, fromDb)
+    } yield Subscription.fromSwitchableStream(switchableStream, getLastEventVersion)
 
+  private def fromHub[EventType: Tag, DoneBy: Tag]
+      : ZIO[Scope, Nothing, ZStream[Any, Nothing, RepositoryEvent[EventType, DoneBy]]] =
     for {
       subscription <- hub.subscribe
-      live = ZStream
+    } yield {
+      val eventTypeTag = implicitly[Tag[EventType]].tag
+      val doneByTag = implicitly[Tag[DoneBy]].tag
+
+      ZStream
         .fromQueue(subscription)
         .collect {
           case event: RepositoryEvent[Any, Any] if event.eventTag <:< eventTypeTag && event.doneByTag <:< doneByTag =>
             event.asInstanceOf[RepositoryEvent[EventType, DoneBy]]
         }
-      switchableStream <- SwitchableZStream.from(live, fromDb)
+    }
 
+  override def listenFromVersion[EventType: Get: Tag, DoneBy: Get: Tag](
+      fromExclusive: EventStoreVersion
+  ): ZIO[Scope, Unexpected, Subscription[EventType, DoneBy]] = {
+    val fromDb = getAllEvents[EventType, DoneBy]
+
+    for {
+      fromVersion <- getAllEventImpl[EventType, DoneBy](query = Req.listAllFromVersion(fromExclusive))
+      live <- fromHub[EventType, DoneBy]
+      switchableStream <- SwitchableZStream.from(fromVersion.concat(live), fromDb)
     } yield Subscription.fromSwitchableStream(switchableStream, getLastEventVersion)
   }
 
   override def getAllEvents[A: Get: Tag, DoneBy: Get: Tag]
       : ZIO[Scope, Nothing, Stream[Unexpected, RepositoryEvent[A, DoneBy]]] =
+    getAllEventImpl[A, DoneBy](Req.listAll)
+
+  private def getAllEventImpl[A: Get: Tag, DoneBy: Get: Tag](query: Fragment) =
     for {
       queue <- ZIO.acquireRelease(Queue.bounded[Take[Unexpected, RepositoryEvent[A, DoneBy]]](16))(_.shutdown)
-      _ <- Req.listAll
+      _ <- query
         .query[RepositoryEvent[A, DoneBy]]
         .stream
         .transact(transactor)
@@ -270,9 +289,14 @@ private object Req {
   }
 
   def listAll: Fragment =
+    selectEvent(whereOpt = None)
+
+  def listAllFromVersion(eventStoreVersion: EventStoreVersion): Fragment =
+    selectEvent(whereOpt = Some(sql"""eventStoreVersion > $eventStoreVersion"""))
+
+  private def selectEvent(whereOpt: Option[Fragment]): Fragment =
     sql"""select processid, aggregateid, aggregatename, aggregateVersion, sentdate, eventStoreVersion, doneBy, payload
-		  from events
-		  order by eventStoreVersion"""
+		  from events """ ++ Fragments.whereAndOpt(whereOpt) ++ Fragments.orderBy(sql"""eventStoreVersion""")
 
   def listStreams(aggregateName: AggregateName, direction: Direction): Fragment = {
     val order = direction match {

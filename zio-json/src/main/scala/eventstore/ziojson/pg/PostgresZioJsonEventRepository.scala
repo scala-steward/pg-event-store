@@ -5,9 +5,11 @@ import doobie.Put
 import eventstore.EventRepository
 import eventstore.EventRepository.Direction
 import eventstore.EventRepository.Error.Unexpected
+import eventstore.EventRepository.Subscription
 import eventstore.RepositoryEvent
 import eventstore.RepositoryWriteEvent
 import eventstore.types.AggregateName
+import eventstore.types.EventStoreVersion
 import eventstore.types.EventStreamId
 import zio._
 import zio.json._
@@ -57,6 +59,14 @@ private class PostgresZioJsonEventRepository(
     implicit val getDoneBy: Get[DoneBy] = getJson[DoneBy]
     postgresEventRepositoryLive.listen[EventType, DoneBy]
 
+  }
+
+  override def listenFromVersion[EventType: JsonDecoder: Tag, DoneBy: JsonDecoder: Tag](
+      fromExclusive: EventStoreVersion
+  ): ZIO[Scope, Unexpected, Subscription[EventType, DoneBy]] = {
+    implicit val getEventType: Get[EventType] = getJson[EventType]
+    implicit val getDoneBy: Get[DoneBy] = getJson[DoneBy]
+    postgresEventRepositoryLive.listenFromVersion[EventType, DoneBy](fromExclusive)
   }
 
   override def getAllEvents[A: JsonDecoder: Tag, DoneBy: JsonDecoder: Tag]

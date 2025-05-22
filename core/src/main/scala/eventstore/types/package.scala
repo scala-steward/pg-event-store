@@ -22,6 +22,8 @@ package object types {
 
   object EventStoreVersion {
     val initial: EventStoreVersion = EventStoreVersion(25)
+
+    implicit val ordering: Ordering[EventStoreVersion] = Ordering.by(_.asInt)
   }
 
   case class ProcessId private[eventstore] (asUuid: UUID) extends AnyVal
