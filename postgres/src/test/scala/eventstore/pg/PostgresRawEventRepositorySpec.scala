@@ -15,7 +15,7 @@ import EventRepositorySpec._
 object PostgresRawCodecs {
 
   def parseEvent1(input: String): Either[String, Event1] = input match {
-    case """{"type": "A"}""" => Right(A)
+    case """{"type": "A"}"""                            => Right(A)
     case s"""{"bar": $bar, "foo": $foo, "type": "B"}""" =>
       for {
         fooB <- foo.toBooleanOption.toRight(s"$foo is not a boolean")
@@ -32,7 +32,7 @@ object PostgresRawCodecs {
   }
 
   def parseEvent2(input: String): Either[String, Event2] = input match {
-    case """{"type": "C"}""" => Right(C)
+    case """{"type": "C"}"""                            => Right(C)
     case s"""{"bar": $bar, "foo": $foo, "type": "D"}""" =>
       for {
         fooB <- foo.toBooleanOption.toRight(s"$foo is not a boolean")

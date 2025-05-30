@@ -78,7 +78,7 @@ object EventRepository {
     def checkVersionsAreContiguousIncrements: Either[Unexpected, Unit] = self match {
       case _ :: tail =>
         self.zip(tail).foldLeft[Either[Unexpected, Unit]](Right[Unexpected, Unit](())) {
-          case (invalid @ Left(_), _) => invalid
+          case (invalid @ Left(_), _)   => invalid
           case (valid, (current, next)) =>
             if (current.aggregateVersion.next == next.aggregateVersion) valid
             else
