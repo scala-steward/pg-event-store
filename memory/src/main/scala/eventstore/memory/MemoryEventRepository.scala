@@ -28,8 +28,19 @@ class MemoryEventRepository[UnusedDecoder[_], UnusedEncoder[_]](
 ) extends EventRepository[UnusedDecoder, UnusedEncoder] {
 
   override def getEventStream[A: UnusedDecoder: Tag, DoneBy: UnusedDecoder: Tag](
-      eventStreamId: EventStreamId
-  ): IO[Unexpected, Seq[RepositoryEvent[A, DoneBy]]] = storageRef.get.map(_.getEvents(eventStreamId)).commit
+      eventStreamId: EventStreamId,
+      direction: Direction = Direction.Forward
+  ): ZIO[Scope, Unexpected, Stream[Unexpected, RepositoryEvent[A, DoneBy]]] =
+    storageRef.get
+      .map(_.getEvents(eventStreamId))
+      .commit
+      .map(events =>
+        direction match {
+          case Direction.Forward  => events
+          case Direction.Backward => events.reverse
+        }
+      )
+      .map(x => ZStream.fromIterable(x))
 
   override def saveEvents[A: UnusedDecoder: UnusedEncoder: Tag, DoneBy: UnusedDecoder: UnusedEncoder: Tag](
       eventStreamId: EventStreamId,

@@ -35,11 +35,12 @@ private class PostgresPlayJsonEventRepository(
     Put[String].contramap(obj => Json.stringify(writes.writes(obj)))
 
   override def getEventStream[EventType: Reads: Tag, DoneBy: Reads: Tag](
-      eventStreamId: EventStreamId
-  ): IO[Error.Unexpected, Seq[RepositoryEvent[EventType, DoneBy]]] = {
+      eventStreamId: EventStreamId,
+      direction: Direction = Direction.Forward
+  ): ZIO[Scope, Unexpected, Stream[Unexpected, RepositoryEvent[EventType, DoneBy]]] = {
     implicit val getEventType: Get[EventType] = getJson[EventType]
     implicit val getDoneBy: Get[DoneBy] = getJson[DoneBy]
-    postgresEventRepositoryLive.getEventStream[EventType, DoneBy](eventStreamId)
+    postgresEventRepositoryLive.getEventStream[EventType, DoneBy](eventStreamId, direction)
   }
 
   override def saveEvents[EventType: Reads: Writes: Tag, DoneBy: Reads: Writes: Tag](

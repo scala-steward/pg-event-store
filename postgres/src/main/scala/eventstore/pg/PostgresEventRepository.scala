@@ -44,15 +44,21 @@ class PostgresEventRepositoryLive(
   import Codecs.*
 
   def getEventStream[A: Get: Tag, DoneBy: Get: Tag](
-      eventStreamId: EventStreamId
-  ): IO[Unexpected, Seq[RepositoryEvent[A, DoneBy]]] =
-    Req
-      .list(eventStreamId)
-      .query[RepositoryEvent[A, DoneBy]]
-      .to[Seq]
-      .transact(transactor)
-      .tapErrorCause(ZIO.logErrorCause("getEventStream", _))
-      .mapError(Unexpected.apply)
+      eventStreamId: EventStreamId,
+      direction: Direction = Direction.Forward
+  ): ZIO[Scope, Unexpected, Stream[Unexpected, RepositoryEvent[A, DoneBy]]] =
+    ZIO.succeed {
+      fs2RIOStreamSyntax(
+        Req
+          .list(eventStreamId, direction)
+          .query[RepositoryEvent[A, DoneBy]]
+          .stream
+          .transact(transactor)
+      )
+        .toZStream()
+        .tapErrorCause(ZIO.logErrorCause("getEventStream", _))
+        .mapError(Unexpected.apply)
+    }
 
   override def saveEvents[E: Get: Put: Tag, DoneBy: Get: Put: Tag](
       eventStreamId: EventStreamId,
@@ -278,14 +284,20 @@ object PostgresEventRepositoryLive {
 private object Req {
   import Codecs.*
 
-  def list(eventStreamId: EventStreamId): Fragment = {
+  def list(eventStreamId: EventStreamId, direction: Direction): Fragment = {
+    val order = direction match {
+      case Direction.Backward => fr"desc"
+      case Direction.Forward  => fr"asc"
+    }
+
     val aggId = eventStreamId.aggregateId
     val aggName = eventStreamId.aggregateName
+
     sql"""select processid, aggregateid, aggregatename, aggregateVersion, sentdate, eventStoreVersion, doneBy, payload
 		  from events
 		  where aggregatename=$aggName
 		  and aggregateid=$aggId
-		  order by aggregateVersion"""
+		  order by aggregateVersion """ ++ order
   }
 
   def listAll: Fragment =

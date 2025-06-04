@@ -106,8 +106,9 @@ trait EventRepository[Decoder[_], Encoder[_]] {
   ): Stream[Unexpected, EventStreamId]
 
   def getEventStream[A: Decoder: Tag, DoneBy: Decoder: Tag](
-      eventStreamId: EventStreamId
-  ): IO[Unexpected, Seq[RepositoryEvent[A, DoneBy]]]
+      eventStreamId: EventStreamId,
+      direction: Direction = Direction.Forward
+  ): ZIO[Scope, Unexpected, Stream[Unexpected, RepositoryEvent[A, DoneBy]]]
 
   def saveEvents[A: Decoder: Encoder: Tag, DoneBy: Decoder: Encoder: Tag](
       eventStreamId: EventStreamId,

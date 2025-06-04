@@ -32,11 +32,12 @@ private class PostgresZioJsonEventRepository(
     Put[String].contramap(obj => encoder.encodeJson(obj, indent = None).toString)
 
   override def getEventStream[A: JsonDecoder: Tag, DoneBy: JsonDecoder: Tag](
-      eventStreamId: EventStreamId
-  ): IO[Unexpected, Seq[RepositoryEvent[A, DoneBy]]] = {
+      eventStreamId: EventStreamId,
+      direction: Direction = Direction.Forward
+  ): ZIO[Scope, Unexpected, Stream[Unexpected, RepositoryEvent[A, DoneBy]]] = {
     implicit val getA: Get[A] = getJson[A]
     implicit val getDoneBy: Get[DoneBy] = getJson[DoneBy]
-    postgresEventRepositoryLive.getEventStream[A, DoneBy](eventStreamId)
+    postgresEventRepositoryLive.getEventStream[A, DoneBy](eventStreamId, direction)
   }
 
   override def saveEvents[A: JsonDecoder: JsonEncoder: Tag, DoneBy: JsonDecoder: JsonEncoder: Tag](

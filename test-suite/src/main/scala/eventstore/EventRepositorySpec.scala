@@ -3,9 +3,10 @@ package eventstore
 import types.{AggregateId, AggregateName, AggregateVersion, EventStoreVersion, EventStreamId, ProcessId}
 import EventRepository.Error.{Unexpected, VersionConflict}
 import EventRepository.{Direction, SaveEventError, Subscription}
+import eventstore.EventRepository.Direction.Backward
 import eventstore.EventRepository.LastEventToHandle.{LastEvent, Version}
 import zio.stream.{UStream, ZStream}
-import zio.{Chunk, Random, Ref, Tag, TagK, URLayer, ZIO, durationInt}
+import zio.{Chunk, Random, Ref, Scope, Tag, TagK, URLayer, ZIO, durationInt}
 import zio.test.*
 import zio.test.Assertion.*
 import zio.test.magnolia.DeriveGen
@@ -259,9 +260,10 @@ object EventRepositorySpec {
                 aggregateName = AggregateName("Foo")
               )
             })
-            result <- ZIO.serviceWithZIO[EventRepository[Decoder, Encoder]](
+            stream <- ZIO.serviceWithZIO[EventRepository[Decoder, Encoder]](
               _.getEventStream[Event1, User](firstStreamId)
             )
+            result <- stream.runCollect
           } yield assert(result)(isEmpty)
         },
         test("should dispatch events to all listeners") {
@@ -299,7 +301,7 @@ object EventRepositorySpec {
             } yield assert(actual)(isEmpty)
           }
         }
-      ).provideSome[R](repository),
+      ).provideSome[R & Scope](repository),
       suite("properties")(
         test("should fail when aggregateVersion is not previous.next") {
           check(versionGen.filterNot(_ == AggregateVersion.initial.next)) { v =>
@@ -380,9 +382,21 @@ object EventRepositorySpec {
             (for {
               repository <- ZIO.service[EventRepository[Decoder, Encoder]]
               _ <- repository.saveEvents(firstStreamId, events)
-              result <- repository.getEventStream[Event1, User](firstStreamId)
+              stream <- repository.getEventStream[Event1, User](firstStreamId)
+              result <- stream.runCollect
             } yield assert(result.asRepositoryWriteEvents)(equalTo(events)))
-              .provideSome[R](repository)
+              .provideSome[R & Scope](repository)
+          }
+        },
+        test("getEventStream should return appended events in reverse order") {
+          check(eventsGen(eventGen)) { case (firstStreamId, events, _) =>
+            (for {
+              repository <- ZIO.service[EventRepository[Decoder, Encoder]]
+              _ <- repository.saveEvents(firstStreamId, events)
+              stream <- repository.getEventStream[Event1, User](firstStreamId, direction = Backward)
+              result <- stream.runCollect
+            } yield assert(result.asRepositoryWriteEvents)(equalTo(events.reverse)))
+              .provideSome[R & Scope](repository)
           }
         },
         test("listen should stream appended events") {
