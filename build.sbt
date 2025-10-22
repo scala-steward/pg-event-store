@@ -3,7 +3,7 @@ import org.typelevel.sbt.tpolecat.DevMode
 import Libraries.*
 import xerial.sbt.Sonatype.sonatypeCentralHost
 
-val scala2Version = "2.13.16"
+val scala2Version = "2.13.17"
 val scala3Version = "3.3.7"
 
 ThisBuild / scalaVersion := scala2Version
