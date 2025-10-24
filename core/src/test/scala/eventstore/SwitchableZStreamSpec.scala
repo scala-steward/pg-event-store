@@ -16,10 +16,11 @@ object SwitchableZStreamSpec extends ZIOSpecDefault {
     test("should close past event streams") {
       for {
         counter <- Ref.make(0)
-        pastEvents = for {
-          count <- counter.updateAndGet(_ + 1)
-          _ <- ZIO.fail("count should never be greater than 1").when(count > 1)
-        } yield ZStream("past").ensuring(counter.update(_ - 1))
+        pastEvents =
+          for {
+            count <- counter.updateAndGet(_ + 1)
+            _ <- ZIO.fail("count should never be greater than 1").when(count > 1)
+          } yield ZStream("past").ensuring(counter.update(_ - 1))
         sut <- SwitchableZStream.from(
           stream1 = ZStream.repeat("live"),
           stream2 = pastEvents
