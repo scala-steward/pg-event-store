@@ -36,7 +36,7 @@ object Libraries {
   )
 
   val `postgres-test-container` = Seq(
-    "com.dimafeng" %% "testcontainers-scala-postgresql" % "0.43.0"
+    "com.dimafeng" %% "testcontainers-scala-postgresql" % "0.43.6"
   )
 
   implicit class TestOps(libs: Seq[ModuleID]) {
