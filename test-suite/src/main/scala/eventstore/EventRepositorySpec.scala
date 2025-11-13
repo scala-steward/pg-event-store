@@ -658,7 +658,7 @@ object EventRepositorySpec {
                   _ <- repository.saveEvents(firstStreamId, events2)
                   subscription <- repository.listenFromVersion[Event1, User](fromExclusive = fromVersion)
                   result <- subscription.stream
-                    .map {
+                    .collect {
                       case e: RepositoryEvent[Event1, User] => e.asString
                       case _: Reset[?, ?]                   => "reset"
                     }
@@ -741,7 +741,7 @@ object EventRepositorySpec {
                         )
                       case _ => ZIO.unit
                     }
-                    .map {
+                    .collect {
                       case e: RepositoryEvent[Event1, User] => e.asString
                       case _: Reset[?, ?]                   => "reset"
                     }
@@ -789,7 +789,7 @@ object EventRepositorySpec {
                         )
                       case _ => ZIO.unit
                     }
-                    .map {
+                    .collect {
                       case e: RepositoryEvent[Event1, User] => e.asString
                       case _: Reset[?, ?]                   => "reset"
                     }
@@ -822,11 +822,11 @@ object EventRepositorySpec {
                         case _: Reset[?, ?] => repository.saveEvents(firstStreamId, events1)
                         case _              => ZIO.unit
                       }
-                      .map {
+                      .collect {
                         case e: RepositoryEvent[Event1, User] => e.asString
                         case _: Reset[?, ?]                   => "reset"
                       }
-                      .take(1 + events1.length)
+                      .take(1L + events1.length)
                       .timeout(2.seconds)
                       .runCollect
                       .fork
@@ -835,6 +835,83 @@ object EventRepositorySpec {
                   result <- resultFiber.join
                 } yield assert(result.toList)(hasSameElements(Seq("reset") ++ events1.asStrings))
               )
+              .provideSome[R](repository)
+          }
+        },
+        test(
+          "listen should publish switchedToLive event once past events are published and before live events"
+        ) {
+          check(eventsGen(eventGen, size1Gen = atLeastOne)) { case (firstStreamId, events1, events2) =>
+            ZIO
+              .scoped {
+                for {
+                  repository <- ZIO.service[EventRepository[Decoder, Encoder]]
+
+                  _ <- repository.saveEvents(firstStreamId, events1)
+
+                  subscription <- repository.listen[Event1, User]
+
+                  _ <- subscription.restartFromFirstEvent()
+
+                  result <- subscription.stream
+                    .tap {
+                      case _: Reset[?, ?] => repository.saveEvents(firstStreamId, events2)
+                      case _           => ZIO.unit
+                    }
+                    .collect {
+                      case e: RepositoryEvent[Event1, ?] => e.asString
+                      case _: SwitchedToLive[?, ?]       => "switch"
+                    }
+                    .sliding(3)
+                    .collect { case c @ Chunk(_, "switch", _) => c }
+                    .timeout(1.seconds)
+                    .runHead
+                } yield assert(result)(
+                  isSome(
+                    equalTo(
+                      Chunk(events1.last.asString, "switch", events2.head.asString)
+                    )
+                  )
+                )
+              }
+              .provideSome[R](repository)
+          }
+        },
+        test(
+          "listen should publish switchedToLive event right after reset and before live events"
+        ) {
+          check(eventsGen(eventGen, size1Gen = atLeastOne)) { case (firstStreamId, events1, _) =>
+            ZIO
+              .scoped {
+                for {
+                  repository <- ZIO.service[EventRepository[Decoder, Encoder]]
+
+                  subscription <- repository.listen[Event1, User]
+
+                  _ <- subscription.restartFromFirstEvent()
+
+                  result <- subscription.stream
+                    .tap {
+                      case _: Reset[?, ?] => repository.saveEvents(firstStreamId, events1)
+                      case _           => ZIO.unit
+                    }
+                    .collect {
+                      case e: RepositoryEvent[Event1, ?] => e.asString
+                      case _: SwitchedToLive[?, ?]       => "switch"
+                      case _: Reset[?, ?]                => "reset"
+                    }
+                    .sliding(3)
+                    .collect { case c @ Chunk("reset", "switch", _) => c }
+                    .timeout(1.seconds)
+                    .runHead
+                } yield assert(result)(
+                  isSome(
+                    equalTo(
+                      Chunk("reset", "switch", events1.head.asString)
+                    )
+                  )
+                )
+              }
               .provideSome[R](repository)
           }
         },
@@ -848,7 +925,7 @@ object EventRepositorySpec {
                 subscription <- repository.listen[Event1, User]
                 resultFiber <- Live.live(
                   subscription.stream
-                    .map {
+                    .collect {
                       case e: RepositoryEvent[Event1, User] => e.asString
                       case _: Reset[?, ?]                   => "reset"
                     }

@@ -33,3 +33,5 @@ case class RepositoryEvent[+EventType: Tag, +DoneBy: Tag](
 }
 
 case class Reset[+EventType, +DoneBy]() extends EventStoreEvent[EventType, DoneBy]
+
+case class SwitchedToLive[+EventType, +DoneBy]() extends EventStoreEvent[EventType, DoneBy]

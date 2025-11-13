@@ -59,6 +59,7 @@ object EventRepository {
           switchableStream.stream.collect {
             case Message.SwitchedToPastEvents => Reset[EventType, DoneBy]()
             case Message.Event(a)             => a
+            case Message.SwitchedToLive       => SwitchedToLive[EventType, DoneBy]()
           }
 
       }
