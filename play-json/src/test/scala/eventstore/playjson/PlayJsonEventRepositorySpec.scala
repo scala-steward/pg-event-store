@@ -2,15 +2,10 @@ package eventstore.playjson
 
 import eventstore.EventRepository
 import eventstore.EventRepositorySpec
-import eventstore.EventRepositorySpec.Codecs
-import eventstore.EventRepositorySpec.Event
-import eventstore.EventRepositorySpec.Event1
-import eventstore.EventRepositorySpec.Event2
-import eventstore.EventRepositorySpec.User
+import eventstore.EventRepositorySpec.{Codecs, DoneBy, DoneBy1, DoneBy2, Event, Event1, Event2, User}
 import eventstore.memory.MemoryEventRepository
 import eventstore.pg.test.PostgresTestUtils
 import eventstore.pg.test.PostgresTestUtils.DbAdmin
-import eventstore.playjson.PlayJsonEventRepository
 import julienrf.json.derived
 import play.api.libs.json.Format
 import play.api.libs.json.Json
@@ -24,27 +19,55 @@ import zio.test._
 
 object PlayJsonCodecs {
 
-  val d1: Format[Event1] = derived.oformat[Event1]()
-
-  val JsonEncoderEvent1: Writes[Event1] = derived.owrites[Event1]()
-
-  val JsonEncoderEvent2: Writes[Event2] = derived.owrites[Event2]()
-
-  val d2: Format[Event2] = derived.oformat[Event2]()
-
-  val JsonReadsEvent: Reads[Event] =
-    d1.asInstanceOf[Format[Event]].orElse(d2.asInstanceOf[Format[Event]])
+  val eventCodec: Format[Event] = derived.oformat[Event]()
+  val event1Codec: Format[Event1] = derived.oformat[Event1]()
+  val event2Codec: Format[Event2] = derived.oformat[Event2]()
 
   val userJsonCodec: Format[User] = Json.format[User]
 
+  val doneByJsonCodec: Format[DoneBy] = derived.oformat[DoneBy]()
+  val doneBy1JsonCodec: Format[DoneBy1] = derived.oformat[DoneBy1]()
+  val doneBy2JsonCodec: Format[DoneBy2] = derived.oformat[DoneBy2]()
+
+  val eventWithDoneByCodec: Format[(Event, DoneBy)] = {
+    implicit val event: Format[Event] = eventCodec
+    implicit val doneBy: Format[DoneBy] = doneByJsonCodec
+    derived.oformat[(Event, DoneBy)]()
+  }
+
+  val event1WithDoneBy1Codec: Format[(Event1, DoneBy1)] = {
+    implicit val event1: Format[Event1] = event1Codec
+    implicit val doneBy1: Format[DoneBy1] = doneBy1JsonCodec
+    derived.oformat[(Event1, DoneBy1)]()
+  }
+
+  val event2WithDoneBy2Codec: Format[(Event2, DoneBy2)] = {
+    implicit val event2: Format[Event2] = event2Codec
+    implicit val doneBy2: Format[DoneBy2] = doneBy2JsonCodec
+    derived.oformat[(Event2, DoneBy2)]()
+  }
+
+  val eventWithUserCodec: Format[(Event, User)] = {
+    implicit val event1: Format[Event] = eventCodec
+    implicit val user: Format[User] = userJsonCodec
+    derived.oformat[(Event, User)]()
+  }
+
   implicit val codecs: Codecs[Reads, Writes] = Codecs(
-    eventDecoder = JsonReadsEvent,
-    event1Decoder = d1,
-    event1Encoder = JsonEncoderEvent1,
-    event2Decoder = d2,
-    event2Encoder = JsonEncoderEvent2,
+    eventDecoder = eventCodec,
+    event1Decoder = event1Codec,
+    event1Encoder = event1Codec,
+    event2Decoder = event2Codec,
+    event2Encoder = event2Codec,
     userDecoder = userJsonCodec,
-    userEncoder = userJsonCodec
+    userEncoder = userJsonCodec,
+    event1WithDoneBy1Encoder = event1WithDoneBy1Codec,
+    event1WithDoneBy1Decoder = event1WithDoneBy1Codec,
+    event2WithDoneBy2Encoder = event2WithDoneBy2Codec,
+    event2WithDoneBy2Decoder = event2WithDoneBy2Codec,
+    eventWithDoneByDecoder = eventWithDoneByCodec,
+    eventWithUserEncoder = eventWithUserCodec,
+    eventWithUserDecoder = eventWithUserCodec
   )
 
 }

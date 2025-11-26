@@ -21,60 +21,53 @@ private class PostgresZioJsonEventRepository(
 ) extends EventRepository[JsonDecoder, JsonEncoder] {
 
   def getJson[A: JsonDecoder: Tag]: Get[A] =
-    Get[String].temap(input =>
+    Get[String].temap(input => {
       implicitly[JsonDecoder[A]]
         .decodeJson(input)
         .left
         .map(msg => s"trying to decode $input as ${implicitly[Tag[A]].tag}, error $msg")
-    )
+    })
 
   def putJson[A](implicit encoder: JsonEncoder[A]): Put[A] =
     Put[String].contramap(obj => encoder.encodeJson(obj, indent = None).toString)
 
-  override def getEventStream[A: JsonDecoder: Tag, DoneBy: JsonDecoder: Tag](
+  override def getEventStream[A: JsonDecoder: Tag](
       eventStreamId: EventStreamId,
       direction: Direction = Direction.Forward
-  ): ZIO[Scope, Unexpected, Stream[Unexpected, RepositoryEvent[A, DoneBy]]] = {
+  ): ZIO[Scope, Unexpected, Stream[Unexpected, RepositoryEvent[A]]] = {
     implicit val getA: Get[A] = getJson[A]
-    implicit val getDoneBy: Get[DoneBy] = getJson[DoneBy]
-    postgresEventRepositoryLive.getEventStream[A, DoneBy](eventStreamId, direction)
+    postgresEventRepositoryLive.getEventStream[A](eventStreamId, direction)
   }
 
-  override def saveEvents[A: JsonDecoder: JsonEncoder: Tag, DoneBy: JsonDecoder: JsonEncoder: Tag](
+  override def saveEvents[A: JsonDecoder: JsonEncoder: Tag](
       eventStreamId: EventStreamId,
-      events: Seq[RepositoryWriteEvent[A, DoneBy]]
-  ): IO[EventRepository.SaveEventError, Seq[RepositoryEvent[A, DoneBy]]] = {
+      events: Seq[RepositoryWriteEvent[A]]
+  ): IO[EventRepository.SaveEventError, Seq[RepositoryEvent[A]]] = {
     implicit val getA: Get[A] = getJson[A]
     implicit val putA: Put[A] = putJson[A]
-    implicit val getDoneBy: Get[DoneBy] = getJson[DoneBy]
-    implicit val putDoneBy: Put[DoneBy] = putJson[DoneBy]
     postgresEventRepositoryLive.saveEvents(eventStreamId, events)
   }
 
-  override def listen[EventType: JsonDecoder: Tag, DoneBy: JsonDecoder: Tag]: ZIO[
+  override def listen[EventType: JsonDecoder: Tag]: ZIO[
     Scope,
     Unexpected,
-    EventRepository.Subscription[EventType, DoneBy]
+    EventRepository.Subscription[EventType]
   ] = {
     implicit val getEventType: Get[EventType] = getJson[EventType]
-    implicit val getDoneBy: Get[DoneBy] = getJson[DoneBy]
-    postgresEventRepositoryLive.listen[EventType, DoneBy]
+    postgresEventRepositoryLive.listen[EventType]
 
   }
 
-  override def listenFromVersion[EventType: JsonDecoder: Tag, DoneBy: JsonDecoder: Tag](
+  override def listenFromVersion[EventType: JsonDecoder: Tag](
       fromExclusive: EventStoreVersion
-  ): ZIO[Scope, Unexpected, Subscription[EventType, DoneBy]] = {
+  ): ZIO[Scope, Unexpected, Subscription[EventType]] = {
     implicit val getEventType: Get[EventType] = getJson[EventType]
-    implicit val getDoneBy: Get[DoneBy] = getJson[DoneBy]
-    postgresEventRepositoryLive.listenFromVersion[EventType, DoneBy](fromExclusive)
+    postgresEventRepositoryLive.listenFromVersion[EventType](fromExclusive)
   }
 
-  override def getAllEvents[A: JsonDecoder: Tag, DoneBy: JsonDecoder: Tag]
-      : ZIO[Scope, Nothing, Stream[Unexpected, RepositoryEvent[A, DoneBy]]] = {
+  override def getAllEvents[A: JsonDecoder: Tag]: ZIO[Scope, Nothing, Stream[Unexpected, RepositoryEvent[A]]] = {
     implicit val getA: Get[A] = getJson[A]
-    implicit val getDoneBy: Get[DoneBy] = getJson[DoneBy]
-    postgresEventRepositoryLive.getAllEvents[A, DoneBy]
+    postgresEventRepositoryLive.getAllEvents[A]
   }
 
   override def listEventStreamWithName(

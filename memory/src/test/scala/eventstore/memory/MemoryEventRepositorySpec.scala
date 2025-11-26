@@ -16,7 +16,14 @@ object MemoryEventRepositorySpec extends ZIOSpecDefault {
     event2Decoder = (),
     event2Encoder = (),
     userDecoder = (),
-    userEncoder = ()
+    userEncoder = (),
+    event1WithDoneBy1Encoder = (),
+    event1WithDoneBy1Decoder = (),
+    event2WithDoneBy2Encoder = (),
+    event2WithDoneBy2Decoder = (),
+    eventWithDoneByDecoder = (),
+    eventWithUserEncoder = (),
+    eventWithUserDecoder = ()
   )
 
   override val spec: Spec[TestEnvironment with Scope, Any] = suite("memory raw")(

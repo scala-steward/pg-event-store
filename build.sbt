@@ -3,7 +3,7 @@ import org.typelevel.sbt.tpolecat.DevMode
 import Libraries.*
 import xerial.sbt.Sonatype.sonatypeCentralHost
 
-val scala2Version = "2.13.17"
+val scala2Version = "2.13.18"
 val scala3Version = "3.3.7"
 
 ThisBuild / scalaVersion := scala2Version
@@ -105,6 +105,7 @@ lazy val `zio-json` = (project in file("zio-json"))
 
 lazy val `play-json` = (project in file("play-json"))
   .settings(commonSettings)
+  .settings(crossScalaVersions := Seq(scala2Version))
   .settings(
     name := "pg-event-store-play-json",
     libraryDependencies ++= zio ++ `zio-test`.asTest ++ `play-json-libs`
