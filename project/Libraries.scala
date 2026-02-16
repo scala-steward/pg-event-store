@@ -16,7 +16,7 @@ object Libraries {
   )
 
   val `zio-json-libs` = Seq(
-    "dev.zio" %% "zio-json" % "0.8.0"
+    "dev.zio" %% "zio-json" % "0.9.0"
   )
 
   val doobie = Seq(
@@ -27,7 +27,7 @@ object Libraries {
   )
 
   val logback = Seq(
-    "ch.qos.logback" % "logback-classic" % "1.5.24"
+    "ch.qos.logback" % "logback-classic" % "1.5.25"
   )
 
   val `play-json-libs` = Seq(
