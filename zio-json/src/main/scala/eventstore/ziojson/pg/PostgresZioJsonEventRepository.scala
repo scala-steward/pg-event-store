@@ -70,6 +70,13 @@ private class PostgresZioJsonEventRepository(
     postgresEventRepositoryLive.getAllEvents[A]
   }
 
+  override def getEventByStoreVersion[A: JsonDecoder: Tag](
+      version: EventStoreVersion
+  ): IO[Unexpected, Option[RepositoryEvent[A]]] = {
+    implicit val getA: Get[A] = getJson[A]
+    postgresEventRepositoryLive.getEventByStoreVersion[A](version)
+  }
+
   override def listEventStreamWithName(
       aggregateName: AggregateName,
       direction: Direction = Direction.Forward

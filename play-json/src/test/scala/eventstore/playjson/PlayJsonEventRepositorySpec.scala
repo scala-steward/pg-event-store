@@ -2,7 +2,14 @@ package eventstore.playjson
 
 import eventstore.EventRepository
 import eventstore.EventRepositorySpec
-import eventstore.EventRepositorySpec.{Codecs, DoneBy, DoneBy1, DoneBy2, Event, Event1, Event2, User}
+import eventstore.EventRepositorySpec.Codecs
+import eventstore.EventRepositorySpec.DoneBy
+import eventstore.EventRepositorySpec.DoneBy1
+import eventstore.EventRepositorySpec.DoneBy2
+import eventstore.EventRepositorySpec.Event
+import eventstore.EventRepositorySpec.Event1
+import eventstore.EventRepositorySpec.Event2
+import eventstore.EventRepositorySpec.User
 import eventstore.memory.MemoryEventRepository
 import eventstore.pg.test.PostgresTestUtils
 import eventstore.pg.test.PostgresTestUtils.DbAdmin

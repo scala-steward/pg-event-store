@@ -73,6 +73,13 @@ private class PostgresPlayJsonEventRepository(
     postgresEventRepositoryLive.getAllEvents[A]
   }
 
+  override def getEventByStoreVersion[A: Reads: Tag](
+      version: EventStoreVersion
+  ): IO[Unexpected, Option[RepositoryEvent[A]]] = {
+    implicit val getEventType: Get[A] = getJson[A]
+    postgresEventRepositoryLive.getEventByStoreVersion[A](version)
+  }
+
   override def listEventStreamWithName(
       aggregateName: AggregateName,
       direction: Direction = Direction.Forward

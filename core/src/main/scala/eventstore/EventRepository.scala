@@ -100,6 +100,10 @@ trait EventRepository[Decoder[_], Encoder[_]] {
 
   def getAllEvents[A: Decoder: Tag]: ZIO[Scope, Nothing, Stream[Unexpected, RepositoryEvent[A]]]
 
+  def getEventByStoreVersion[A: Decoder: Tag](
+      version: EventStoreVersion
+  ): IO[Unexpected, Option[RepositoryEvent[A]]]
+
   def listEventStreamWithName(
       aggregateName: AggregateName,
       direction: Direction = Direction.Forward

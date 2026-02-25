@@ -109,6 +109,17 @@ class PostgresEventRepositoryLive(
   override def getAllEvents[A: Get: Tag]: ZIO[Scope, Nothing, Stream[Unexpected, RepositoryEvent[A]]] =
     getAllEventImpl[A](Req.listAll)
 
+  override def getEventByStoreVersion[A: Get: Tag](
+      version: EventStoreVersion
+  ): IO[Unexpected, Option[RepositoryEvent[A]]] =
+    Req
+      .getByEventVersion(version)
+      .query[RepositoryEvent[A]]
+      .option
+      .transact(transactor)
+      .tapErrorCause(ZIO.logErrorCause("getEventByStoreVersion", _))
+      .mapError(Unexpected.apply)
+
   private def getAllEventImpl[A: Get: Tag](query: Fragment) =
     for {
       queue <- ZIO.acquireRelease(Queue.bounded[Take[Unexpected, RepositoryEvent[A]]](16))(_.shutdown)
@@ -301,6 +312,9 @@ private object Req {
 
   def listAllFromVersion(eventStoreVersion: EventStoreVersion): Fragment =
     selectEvent(whereOpt = Some(sql"""eventStoreVersion > $eventStoreVersion"""))
+
+  def getByEventVersion(eventStoreVersion: EventStoreVersion): Fragment =
+    selectEvent(whereOpt = Some(sql"""eventStoreVersion = $eventStoreVersion"""))
 
   private def selectEvent(whereOpt: Option[Fragment]): Fragment =
     sql"""select processid, aggregateid, aggregatename, aggregateVersion, sentdate, eventStoreVersion, payload

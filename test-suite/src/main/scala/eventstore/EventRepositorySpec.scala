@@ -48,11 +48,16 @@ object EventRepositorySpec {
   case object C extends Event2
   case class D(foo: Boolean, bar: Int) extends Event2
 
-  implicit class WriteEventOps[+E](
+  implicit class WriteEventsOps[+E](
       events: Seq[RepositoryEvent[E]]
   ) {
     def asRepositoryWriteEvents =
-      events.map(event =>
+      events.map(_.asRepositoryWriteEvent)
+  }
+  implicit class WriteEventOps[+E](
+      event: RepositoryEvent[E]
+  ) {
+    def asRepositoryWriteEvent =
         RepositoryWriteEvent(
           processId = event.processId,
           aggregateId = event.aggregateId,
@@ -60,7 +65,6 @@ object EventRepositorySpec {
           aggregateVersion = event.aggregateVersion,
           sentDate = event.sentDate,
           event = event.event
-        )
       )
   }
 
@@ -138,7 +142,7 @@ object EventRepositorySpec {
   val doneBy1Gen: Gen[Any, DoneBy1] = DeriveGen.gen[DoneBy1].derive
   val doneBy2Gen: Gen[Any, DoneBy2] = DeriveGen.gen[DoneBy2].derive
 
-  def pickRandomly[A](lists: List[List[A]]): UStream[A] = {
+  def pickRandomly[A](lists: Seq[Seq[A]]): UStream[A] = {
     ZStream.unfoldZIO(lists)(lists => {
       if (lists.isEmpty) ZIO.none
       else {
@@ -624,51 +628,91 @@ object EventRepositorySpec {
             }
           }
 
-          suite("getAllEvents")(
-            test("getAllEvents should list events in a deterministic order") {
+          suite("get events")(
+            suite("getEventByStoreVersion")(
+              test("getEventByStoreVersion should make any event findable by its store version") {
 
-              check(eventsGen(event1Gen, size1Gen = atLeastOne), eventsGen(event2Gen, size1Gen = atLeastOne)) {
-                case ((_, events1, _), (_, events2, _)) =>
-                  ZIO
-                    .scoped {
-                      for {
-                        repository <- ZIO.service[EventRepository[Decoder, Encoder]]
-                        events <- pickRandomly(List(events1, events2)).runCollect
-                        _ <- ZIO.foreachDiscard(events)(save)
-                        result <- repository.getAllEvents[Event].flatMap(_.runCollect)
+                check(eventsGen(event1Gen, size1Gen = atLeastOne)) {
+                  case ((_, events, _)) =>
+                    ZIO
+                      .scoped {
+                        for {
+                          repository <- ZIO.service[EventRepository[Decoder, Encoder]]
+                          saved <- ZIO.foreach(events)(save)
+                          anySavedEvent <- pickRandomly(saved).runHead.some
+                          result <- repository.getEventByStoreVersion[Event](anySavedEvent.eventStoreVersion)
 
-                      } yield assert(result.asRepositoryWriteEvents)(
-                        equalTo(events)
-                      )
-                    }
-                    .provideSome[R](repository)
+                        } yield assert(result)(isSome(
+                          equalTo(anySavedEvent)
+                        ))
+                      }
+                      .provideSome[R](repository)
+                }
+              },
+              test("getEventByStoreVersion should return None when the store version doesn't exist") {
+
+                checkN(1)(eventsGen(event1Gen, size1Gen = atLeastOne)) {
+                  case ((_, events, _)) =>
+                    ZIO
+                      .scoped {
+                        for {
+                          repository <- ZIO.service[EventRepository[Decoder, Encoder]]
+                          saved <- ZIO.foreach(events)(save)
+                          lastEvent = saved.flatten.maxBy(_.eventStoreVersion)
+                          result <- repository.getEventByStoreVersion[Event](lastEvent.eventStoreVersion.next)
+
+                        } yield assert(result)(isNone)
+                      }
+                      .provideSome[R](repository)
+                }
               }
-            },
-            test(
-              "getAllEvents should list events in the same ordering than listen"
-            ) {
-              implicit val implicitEventDecoder: Decoder[Event] = codecs.eventDecoder
+            ),
+            suite("getAllEvents")(
+              test("getAllEvents should list events in a deterministic order") {
 
-              check(eventsGen(event1Gen, size1Gen = atLeastOne), eventsGen(event2Gen, size1Gen = atLeastOne)) {
-                case ((_, events1, _), (_, events2, _)) =>
-                  ZIO
-                    .scoped {
-                      for {
-                        repository <- ZIO.service[EventRepository[Decoder, Encoder]]
-                        stream <- repository.listen[Event].map(_.events)
-                        _ <- pickRandomly(List(events1, events2)).runForeach(save)
-                        fromListen <- stream
-                          .take(events1.length.toLong + events2.length)
-                          .runCollect
-                        result <- repository
-                          .getAllEvents[Event]
-                          .flatMap(_.runCollect)
+                check(eventsGen(event1Gen, size1Gen = atLeastOne), eventsGen(event2Gen, size1Gen = atLeastOne)) {
+                  case ((_, events1, _), (_, events2, _)) =>
+                    ZIO
+                      .scoped {
+                        for {
+                          repository <- ZIO.service[EventRepository[Decoder, Encoder]]
+                          events <- pickRandomly(List(events1, events2)).runCollect
+                          _ <- ZIO.foreachDiscard(events)(save)
+                          result <- repository.getAllEvents[Event].flatMap(_.runCollect)
 
-                      } yield assert(result)(equalTo(fromListen))
-                    }
-                    .provideSome[R](repository)
+                        } yield assert(result.asRepositoryWriteEvents)(
+                          equalTo(events)
+                        )
+                      }
+                      .provideSome[R](repository)
+                }
+              },
+              test(
+                "getAllEvents should list events in the same ordering than listen"
+              ) {
+                implicit val implicitEventDecoder: Decoder[Event] = codecs.eventDecoder
+
+                check(eventsGen(event1Gen, size1Gen = atLeastOne), eventsGen(event2Gen, size1Gen = atLeastOne)) {
+                  case ((_, events1, _), (_, events2, _)) =>
+                    ZIO
+                      .scoped {
+                        for {
+                          repository <- ZIO.service[EventRepository[Decoder, Encoder]]
+                          stream <- repository.listen[Event].map(_.events)
+                          _ <- pickRandomly(List(events1, events2)).runForeach(save)
+                          fromListen <- stream
+                            .take(events1.length.toLong + events2.length)
+                            .runCollect
+                          result <- repository
+                            .getAllEvents[Event]
+                            .flatMap(_.runCollect)
+
+                        } yield assert(result)(equalTo(fromListen))
+                      }
+                      .provideSome[R](repository)
+                }
               }
-            }
+            )
           )
         },
         test(
