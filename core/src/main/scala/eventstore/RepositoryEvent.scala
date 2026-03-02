@@ -28,6 +28,6 @@ case class RepositoryEvent[+EventType: Tag](
   private[eventstore] def eventTag: LightTypeTag = implicitly[Tag[EventType]].tag
 }
 
-case class Reset[+EventType]() extends EventStoreEvent[EventType]
+case object Reset extends EventStoreEvent[Nothing]
 
-case class SwitchedToLive[+EventType]() extends EventStoreEvent[EventType]
+case object SwitchedToLive extends EventStoreEvent[Nothing]

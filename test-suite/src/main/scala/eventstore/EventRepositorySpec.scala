@@ -884,7 +884,7 @@ object EventRepositorySpec {
                   result <- subscription.stream
                     .collect {
                       case e: RepositoryEvent[Event1] => e.asString
-                      case _: Reset[?]                => "reset"
+                      case Reset                => "reset"
                     }
                     .take(nbEvents2)
                     .timeout(1.seconds)
@@ -973,7 +973,7 @@ object EventRepositorySpec {
                     }
                     .collect {
                       case e: RepositoryEvent[Event1] => e.asString
-                      case _: Reset[?]                => "reset"
+                      case Reset                => "reset"
                     }
                     .take(nbEvents1 + nbEvents2 * 2 + 1)
                     .timeout(1.seconds)
@@ -1024,7 +1024,7 @@ object EventRepositorySpec {
                     }
                     .collect {
                       case e: RepositoryEvent[Event1] => e.asString
-                      case _: Reset[?]                => "reset"
+                      case Reset                => "reset"
                     }
                     .take(nbEvents1 + nbEvents2 * 2 + 1)
                     .timeout(1.seconds)
@@ -1055,12 +1055,12 @@ object EventRepositorySpec {
                   resultFiber <- Live.live(
                     subscription.stream
                       .tap {
-                        case _: Reset[?] => repository.saveEvents(firstStreamId, events1)
+                        case Reset => repository.saveEvents(firstStreamId, events1)
                         case _           => ZIO.unit
                       }
                       .collect {
                         case e: RepositoryEvent[Event1] => e.asString
-                        case _: Reset[?]                => "reset"
+                        case Reset                => "reset"
                       }
                       .take(1L + events1.length)
                       .timeout(2.seconds)
@@ -1094,12 +1094,12 @@ object EventRepositorySpec {
 
                   result <- subscription.stream
                     .tap {
-                      case _: Reset[?] => repository.saveEvents(firstStreamId, events2)
+                      case Reset => repository.saveEvents(firstStreamId, events2)
                       case _           => ZIO.unit
                     }
                     .collect {
                       case e: RepositoryEvent[Event1] => e.asString
-                      case _: SwitchedToLive[?]       => "switch"
+                      case SwitchedToLive       => "switch"
                     }
                     .sliding(3)
                     .collect { case c @ Chunk(_, "switch", _) => c }
@@ -1134,13 +1134,13 @@ object EventRepositorySpec {
 
                   result <- subscription.stream
                     .tap {
-                      case _: Reset[?] => repository.saveEvents(firstStreamId, events1)
+                      case Reset => repository.saveEvents(firstStreamId, events1)
                       case _           => ZIO.unit
                     }
                     .collect {
                       case e: RepositoryEvent[Event1] => e.asString
-                      case _: SwitchedToLive[?]       => "switch"
-                      case _: Reset[?]                => "reset"
+                      case SwitchedToLive       => "switch"
+                      case Reset                => "reset"
                     }
                     .sliding(3)
                     .collect { case c @ Chunk("reset", "switch", _) => c }
@@ -1171,7 +1171,7 @@ object EventRepositorySpec {
                   subscription.stream
                     .collect {
                       case e: RepositoryEvent[Event1] => e.asString
-                      case _: Reset[?]                => "reset"
+                      case Reset                => "reset"
                     }
                     .take(1)
                     .timeout(1.seconds)

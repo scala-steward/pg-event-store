@@ -57,9 +57,9 @@ object EventRepository {
 
         override def stream: ZStream[Any, Unexpected, EventStoreEvent[EventType]] =
           switchableStream.stream.collect {
-            case Message.SwitchedToPastEvents => Reset[EventType]()
+            case Message.SwitchedToPastEvents => Reset
             case Message.Event(a)             => a
-            case Message.SwitchedToLive       => SwitchedToLive[EventType]()
+            case Message.SwitchedToLive       => SwitchedToLive
           }
 
       }
