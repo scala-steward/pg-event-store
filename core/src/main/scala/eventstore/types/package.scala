@@ -23,6 +23,10 @@ package object types {
   object EventStoreVersion {
     val initial: EventStoreVersion = EventStoreVersion(25)
 
+    def unsafe(asInt: Int): Either[String, EventStoreVersion] =
+      if (asInt < initial.asInt) Left("Illegal version number")
+      else Right(EventStoreVersion(asInt))
+
     implicit val ordering: Ordering[EventStoreVersion] = Ordering.by(_.asInt)
   }
 
