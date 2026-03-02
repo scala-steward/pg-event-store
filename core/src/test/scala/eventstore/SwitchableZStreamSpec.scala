@@ -12,7 +12,7 @@ import zio.test._
 
 object SwitchableZStreamSpec extends ZIOSpecDefault {
 
-  def spec = suite("SwitchableZStream")(
+  def spec: Spec[Any, Nothing] = suite("SwitchableZStream")(
     test("should close past event streams") {
       for {
         counter <- Ref.make(0)

@@ -26,6 +26,8 @@ case class RepositoryEvent[+EventType: Tag](
     event: EventType
 ) extends EventStoreEvent[EventType] {
   private[eventstore] def eventTag: LightTypeTag = implicitly[Tag[EventType]].tag
+
+  def isEventSubtypeOf[A: Tag]: Boolean = eventTag <:< implicitly[Tag[A]].tag
 }
 
 case object Reset extends EventStoreEvent[Nothing]

@@ -69,7 +69,9 @@ lazy val `test-suite` = (project in file("test-suite"))
     name := "pg-event-store-test-suite",
     libraryDependencies ++= zio ++ `zio-test`
   )
-  .dependsOn(core)
+  .dependsOn(
+    core % "compile->compile;compile->test"
+  )
 
 lazy val postgres = (project in file("postgres"))
   .settings(commonSettings)
