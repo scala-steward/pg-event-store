@@ -1,0 +1,83 @@
+= Scala Event Sourcing store implementation as a library for PostgreSQL
+
+This library provides an API inspired by https://github.com/kurrent-io/KurrentDB[KurrentDB],
+formerly known as GetEventStore.
+
+It supports:
+
+* reading the whole store in a deterministic order
+* listing event streams by aggregate
+* reading events for an aggregate instance in both direction
+* writing a sequence of events for an aggregate instance as a transaction with concurrency protection
+* dispatching of events to listeners
+* atomically replaying of events for listeners
+* pluggable encoding library for persisting events in PostgreSQL
+
+It's used in production at https://www.squircles.io[Squircles] but the API is not stable yet.
+
+== Scala support and dependencies
+
+The library is cross-compile for Scala 2.13 and Scala 3.3.
+The library has a hard dependency on https://github.com/typelevel/doobie[Doobie] and https://github.com/zio/zio[ZIO]
+
+It will keep Scala 2.13 compatibility and track Scala 3 LTS over time.
+
+== Quick Start
+
+You can import the library implementation for `zio-json` with these lines
+
+[source]
+----
+"immo.performance" % "pg-event-store-core" %% "0.0.26"
+"immo.performance" % "pg-event-store-postgres" %% "0.0.26"
+"immo.performance" % "pg-event-store-zio-json" %% "0.0.26"
+----
+
+The main trait to use is `EventRepository` and there's a `ZLayer`
+exposing a working implementation in `ZioJsonEventRepository.postgresLayer`
+
+== Limitations
+
+A few limitations are known and will be worked on in the future :
+
+* event dispatch is using in-memory datastructures,
+  it can cause inconsistencies in case of missed deliveries
+* there's no way to listen or read events with a filter on aggregate types
+* transactions are limited to a single aggregate instance
+
+== Modules
+
+=== Core
+
+Base types and traits
+
+`"immo.performance" % "pg-event-store-core" %% "0.0.26"`
+
+=== Postgres
+
+Implementation of traits using PostreSQL
+
+`"immo.performance" % "pg-event-store-postgres" %% "0.0.26"`
+
+=== Memory
+
+Implementation of traits using in-memory datastructures. Used mainly for testing.
+
+`"immo.performance" % "pg-event-store-memory" %% "0.0.26"`
+
+=== ZIO-JSON
+
+Implementation of Codecs with https://github.com/zio/zio-json/[zio-json]
+
+`"immo.performance" % "pg-event-store-zio-json" %% "0.0.26"`
+
+=== PLAY-JSON
+
+Implementation of Codecs with https://github.com/playframework/play-json[play-json]
+
+`"immo.performance" % "pg-event-store-play-json" %% "0.0.26"`
+
+
+== License
+
+This library is published under Apache License 2.0
