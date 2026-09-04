@@ -3,7 +3,7 @@ import org.typelevel.sbt.tpolecat.DevMode
 import sbt.Keys.libraryDependencies
 
 val scala2Version = "2.13.18"
-val scala3Version = "3.3.8"
+val scala3Version = "3.9.0"
 
 scalaVersion := scala2Version
 homepage := Some(uri("https://github.com/PerformanceIMMO/pg-event-store"))
