@@ -16,18 +16,18 @@ object Libraries {
   )
 
   val `zio-json-libs` = Seq(
-    "dev.zio" %% "zio-json" % "0.10.0"
+    "dev.zio" %% "zio-json" % "1.1.0"
   )
 
   val doobie = Seq(
-    "dev.zio" %% "zio-interop-cats" % "23.1.0.13",
+    "dev.zio" %% "zio-interop-cats" % "23.1.0.14",
     "org.typelevel" %% "doobie-core" % doobie_version,
     "org.typelevel" %% "doobie-postgres" % doobie_version,
     "org.typelevel" %% "doobie-hikari" % doobie_version
   )
 
   val logback = Seq(
-    "ch.qos.logback" % "logback-classic" % "1.6.3"
+    "ch.qos.logback" % "logback-classic" % "1.6.5"
   )
 
   val `play-json-libs` = Seq(
