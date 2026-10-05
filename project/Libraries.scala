@@ -20,7 +20,7 @@ object Libraries {
   )
 
   val doobie = Seq(
-    "dev.zio" %% "zio-interop-cats" % "23.1.0.13",
+    "dev.zio" %% "zio-interop-cats" % "23.1.0.14",
     "org.typelevel" %% "doobie-core" % doobie_version,
     "org.typelevel" %% "doobie-postgres" % doobie_version,
     "org.typelevel" %% "doobie-hikari" % doobie_version
